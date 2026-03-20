@@ -60,3 +60,4 @@ class ScanRequest(BaseModel):
 class AutoScanRequest(BaseModel):
     target: str
     tools: List[str]
+    port: Optional[str] = ""

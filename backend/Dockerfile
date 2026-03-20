@@ -28,17 +28,54 @@ RUN apt-get update && apt-get install -y \
     dnsutils \
     iputils-ping \
     hydra \
+    sslscan \
+    traceroute \
+    enum4linux \
+    smbclient \
+    ftp \
+    python3-impacket \
     git \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    john \
+    wordlists \
+    amass \
+    theharvester \
+    metasploit-framework \
+    tshark \
+    suricata \
+    zaproxy \
+    ffuf \
+    nuclei \
+    aircrack-ng \
+    crackmapexec \
+    netexec \
+    responder \
+    hashcat
+
+# Install testssl.sh manually
+RUN git clone --depth 1 https://github.com/drwetter/testssl.sh.git /opt/testssl.sh && \
+    ln -s /opt/testssl.sh/testssl.sh /usr/local/bin/testssl.sh
+
+# Initialize NetExec to create databases and folders during build
+RUN netexec smb 127.0.0.1 --dry-run || true
+
+# Initialize Suricata rules
+RUN suricata-update || echo "Suricata update failed, continuing anyway"
+
+# Unzip rockyou for easy usage
+RUN gunzip /usr/share/wordlists/rockyou.txt.gz || true
+
+# Cleanup to reduce image size
+RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Create virtual environment for Python to avoid system package conflicts
 ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# Install Python dependencies
+# Install Python dependencies and tools
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir bloodhound sslyze gvm-tools && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy project
 COPY . .

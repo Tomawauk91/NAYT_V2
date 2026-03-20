@@ -157,8 +157,9 @@ export default function App() {
           setNewMissionTarget('');
           addNotification('success', t.missionCreated);
           setSelectedMission(newMission);
-      } catch (e) {
-          addNotification('error', 'Failed to create mission');
+      } catch (e: any) {
+          console.error("Mission creation error:", e);
+          addNotification('error', e.message || 'Failed to create mission');
       }
   };
 

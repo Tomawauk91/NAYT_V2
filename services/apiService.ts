@@ -47,7 +47,17 @@ export const toolsService = {
           },
           body: JSON.stringify(mission)
       });
-      if (!response.ok) throw new Error('Failed to create mission');
+      
+      if (!response.ok) {
+          const text = await response.text();
+          console.error('Create Mission Failed:', text);
+          try {
+             const errorData = JSON.parse(text);
+             throw new Error(errorData.detail || 'Failed to create mission');
+          } catch (e) {
+             throw new Error(`Failed to create mission: ${response.status} ${response.statusText}`);
+          }
+      }
       return await response.json();
   },
   
@@ -143,7 +153,7 @@ export const toolsService = {
       return await response.json();
   },
 
-  async runAutoScan(target: string, tools: string[]) {
+  async runAutoScan(target: string, tools: string[], port: string = "") {
     const token = localStorage.getItem('token');
     const response = await fetch(`${API_BASE_URL}/scan/auto`, {
       method: 'POST',
@@ -151,7 +161,7 @@ export const toolsService = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ target, tools }),
+      body: JSON.stringify({ target, tools, port }),
     });
 
     if (!response.ok) {

@@ -22,6 +22,9 @@ services:
     depends_on:
       - redis
       - db
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
     # Run as root inside container might be needed for some tools (nmap, etc)
     # The image runs as root by default unless specified otherwise.
 
@@ -33,6 +36,9 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=postgresql://user:password@db/pentestdb
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
     depends_on:
       - redis
       - db

@@ -1,0 +1,439 @@
+[Intégration] : Lister les commandes CLI prioritaires et leurs arguments
+
+Les CLI prioritaires automatisables :
+
+1- Reconnaissance réseau :
+
+Nmap (priorité absolue) : Découverte hôtes, ports, services, versions
+
+Commandes :
+
+nmap -sS -p- -T4 <target>
+nmap -sV -O <target>
+nmap --script vuln <target>
+
+Arguments :
+
+* -sS : scan SYN rapide
+* -p- : tous les ports
+* -sV : détection des versions
+* -O : OS fingerprint
+* --script vuln : scripts vuln NSE
+* -oX / -oA : export XML pour parsing
+
+
+2- Reconnaissance web :
+
+WhatWeb : Fingerprinting technologique
+
+Commandes :
+
+whatweb <url>
+whatweb -a 3 <url>
+
+Argument :
+
+* -a : agressivité
+
+
+Nikto : Vulnérabilités web connues
+
+Commandes :
+
+nikto -h <url>
+nikto -h <url> -Tuning x 6
+
+Arguments :
+* -h : cible
+* -Tuning : réduire bruit / faux positifs
+* -Format json (si dispo)
+
+
+3- Enumération web & contenu :
+
+Gobuster / Feroxbuster : Bruteforce de chemins
+
+Commande :
+
+gobuster dir -u <url> -w <wordlist>
+
+Arguments :
+
+* dir / dns
+* -w : wordlist
+* -x : extensions
+* -t : threads
+* -o : output
+
+
+4- Failles applicatives (semiautomatisé) :
+
+Sqlmap : Détection/exploitation SQLi
+
+Commande :
+
+sqlmap -u <url> --batch
+
+Arguments :
+
+* -u : cible
+* --batch : non interactif (important pour Celery)
+* --risk / --level
+* --dump
+
+
+5- Authentification & mots de passe :
+
+John the Ripper : Cassage de hash offline
+
+Commandes :
+
+john hashes.txt
+john --wordlist=rockyou.txt hashes.txt
+
+Arguments :
+
+* --wordlist
+* --rules
+* --format
+
+
+6- Postexploitation :
+
+Hydra : Bruteforce en ligne
+
+Commande :
+
+hydra -l user -P pass.txt ssh://<target>
+
+Arguments :
+
+* protocole
+* login / password
+* threads
+
+
+
+Les CLI secondaires automatisables :
+
+1- curl : Validation HTTP / API
+
+Rôles :
+
+* Vérifier la présence d’un service web
+* Tester headers, méthodes HTTP
+* Valider une vulnérabilité détectée
+
+Commandes : 
+
+curl -I https://target
+curl -X GET https://target/api
+curl -X POST -d "param=value" https://target/login
+
+Arguments :
+
+* -I : headers uniquement
+* -X : méthode HTTP
+* -d : données POST
+* -H : headers custom
+* -k : ignorer TLS
+* -L : suivre redirections
+* --max-time : timeout
+
+
+2- netcat (nc) : Vérification de services
+
+Rôles :
+
+* Tester si un port répond réellement
+* Banner grabbing simple
+* Test TCP/UDP ciblé
+
+Commandes :
+
+nc -vz target 22
+nc target 80
+
+Arguments :
+
+* -v : verbose
+* -z : scan sans envoi de données
+* -u : UDP
+* -w : timeout
+
+
+3- sslscan / testssl.sh : TLS complémentaire
+
+Rôles :
+
+* Vérifier versions TLS
+* Cipher suites faibles
+
+Commandes :
+
+sslscan target:443
+testssl.sh https://target
+
+Arguments :
+
+* --no-colour
+* --jsonfile
+* --severity
+
+
+4- Whois : Informations domaine/IP
+
+Rôles :
+* Infos registrars, plages IP
+* OSINT rapide
+
+Commande :
+
+whois example.com
+
+Arguments :
+
+* -H : pas d’entêtes légales
+
+
+5- dig / nslookup : DNS
+
+Rôles :
+
+* Résolution DNS
+* Enumération basique
+
+Commandes :
+
+dig example.com
+dig MX example.com
+
+Arguments :
+
+* +short
+* ANY
+* MX, TXT, NS
+
+
+6- traceroute / tracepath : Chemins réseau
+
+Rôles : 
+
+* Identifier la topologie réseau
+* Détection filtrage
+
+Commande :
+
+traceroute target
+
+Arguments :
+
+* -n : pas de DNS
+* -w : timeout
+
+7- enum4linux (si AD / SMB) :
+
+Rôle :
+
+* Enumération SMB / AD basique
+
+Commande :
+
+enum4linux -a target
+
+Arguments :
+
+* -a : tout
+* -u / -p : creds
+
+
+8- smbclient : SMB ciblé
+
+Rôles :
+
+* Lister partages
+* Vérifier accès anonyme
+
+Commande :
+
+smbclient -L //target -N
+
+Arguments : 
+
+* -L : list
+* -N : no password
+
+
+9- ftp / ssh : Vérification d’accès
+
+Rôles :
+
+* Tester accès anonymes
+* Vérifier bannières
+
+Commandes :
+
+ftp target
+ssh user@target
+
+Arguments clés :
+
+* -v
+* -o StrictHostKeyChecking=no
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+PôleEnjeuxBesoins spécifiquesExemples d’outils intégrablesSécurité (SOC, EDR, XDR)- Tester l’efficacité des mécanismes de détection et de réponse aux incidents.
+- Évaluer la capacité des solutions EDR/XDR à identifier des comportements malveillants réels.
+- Analyser les flux réseau et les alertes générées.- Tests ciblés sur les systèmes de détection.
+- Simulation d’attaques contrôlées.
+- Analyse fine des flux réseau.Nmap, Metasploit, Wireshark, Suricata, ELK StackDéveloppement SaaS- Identifier les vulnérabilités applicatives dès les phases de développement ou en production.
+- Sécuriser les applications web et les API exposées.
+- Réduire les risques liés aux dépendances logicielles.- Tests de sécurité des applications web.
+- Tests d’API (authentification, autorisations, injections).
+- Analyse des dépendances et composants tiers.
+- Fuzzing et tests d’intrusion applicative.Burp Suite, OWASP ZAP, Postman, SQLmap, OWASP Dependency-Check, ffufInfrastructure- Évaluer la sécurité des réseaux internes et des systèmes d’exploitation.
+- Identifier les faiblesses de configuration et les services exposés.
+- Tester la résistance des infrastructures aux attaques réseau et sans fil.- Scans de vulnérabilités réseau.
+- Tests d’authentification et de services.
+- Audits des réseaux Wi-Fi et systèmes.OpenVAS, Nessus, Hydra, Aircrack-ng, Mimikatz, LynisSupport Client- Garantir la sécurité des outils de communication utilisés avec les clients.
+- Prévenir les attaques de type interception, phishing ou man-in-the-middle.
+- Renforcer la confiance des clients dans les solutions proposées.- Tests de sécurité des services web et de communication.
+- Analyse des certificats et configurations SSL/TLS.
+- Cartographie des relations et vecteurs d’attaque.
+- Analyse des flux réseau clients.Nikto, SSLyze, Ettercap, Maltego, Wireshark, ResponderRH / Administration- Sécuriser les outils internes de gestion (RH, paie, accès administratifs).
+- Prévenir les compromissions de comptes à privilèges.
+- Protection des données sensibles et personnelles.- Pentest des outils internes de gestion.
+- Tests d’authentification et gestion des identités.
+- Évaluation de la robustesse des mots de passe et des contrôles d’accès.John the Ripper, Hashcat, Acunetix, LAPSOutilPôle concernéStatutJustificationNmapSécurité / Infrastructure? RetenuOutil entièrement scriptable (CLI), sorties XML/JSON exploitables, idéal pour l’automatisation de la phase de reconnaissance.MetasploitSécurité? RetenuDispose d’une interface CLI et RPC permettant l’automatisation de scénarios d’exploitation et de tests de détection.Wireshark (tshark)Sécurité / Support Client? RetenuLa version CLI (tshark) permet l’analyse automatisée des flux réseau sans interface graphique.Suricata / SnortSécurité? RetenuGénèrent des logs exploitables pour tester et mesurer l’efficacité des mécanismes de détection.OWASP ZAPDéveloppement SaaS? RetenuFonctionnement en mode headless, API REST, parfaitement adapté à des scans web automatisés.Burp SuiteDéveloppement SaaS?? PartielIntégré uniquement via les fonctionnalités d’automatisation (CLI / API). Dépend de la version utilisée.SQLmapDéveloppement SaaS? RetenuEntièrement automatisable, idéal pour les tests d’injection SQL dans une chaîne d’outils.Dependency-CheckDéveloppement SaaS? RetenuOutil CLI générant des rapports structurés, adapté à l’analyse automatisée des dépendances.ffufDéveloppement SaaS? RetenuOutil CLI rapide et scriptable pour le fuzzing des applications web et API.NucleiDéveloppement SaaS? RetenuBasé sur des templates, très adapté aux scans massifs et reproductibles.OpenVAS / GreenboneInfrastructure? RetenuAPI disponible, automatisable pour les scans de vulnérabilités réseau.NessusInfrastructure? RetenuAPI REST permettant l’intégration dans des workflows automatisés.HydraInfrastructure? RetenuOutil CLI efficace pour l’automatisation des tests d’authentification.Aircrack-ngInfrastructure?? PartielScriptable, mais nécessite des prérequis matériels et contextuels. Utilisé de manière ciblée.CrackMapExec / NetExecInfrastructure? RetenuOutil CLI conçu pour l’automatisation des tests en environnement Active Directory.NiktoSupport Client? RetenuScanner web CLI simple et automatisable, adapté aux audits rapides.SSLyzeSupport Client? RetenuOutil CLI produisant des résultats structurés pour l’analyse SSL/TLS automatisée.ResponderSupport Client?? PartielAutomatisable mais utilisé uniquement dans des scénarios contrôlés (risques élevés).MaltegoSupport Client? ÉcartéOutil fortement dépendant d’une interface graphique, non adapté à une automatisation fiable.EttercapSupport Client? ÉcartéNécessite une interaction humaine importante, difficilement intégrable dans une toolbox automatisée.John the RipperRH / Administration? RetenuOutil CLI performant pour les audits automatisés de mots de passe.HashcatRH / Administration? RetenuAccélération GPU, entièrement scriptable, adapté aux scénarios automatisés.Cain & AbelRH / Administration? ÉcartéOutil obsolète, non maintenu et peu compatible avec les environnements actuels.AcunetixRH / Administration?? PartielIntégré uniquement si l’API est utilisée pour automatiser les scans applicatifs internes.BloodHoundRH / Administration?? PartielCollecte automatisable, mais analyse graphique conservée pour l’interprétation humaine.
+
+Workflow d’exécution d’un pentest automatisé
+
+PhaseObjectifsActions automatiséesActions manuellesLivrables / Résultats1. ReconnaissanceIdentifier la surface d’attaque et les cibles exposéesDécouverte des hôtes, ports et services
+Identification des technologies
+Collecte d’informations publiquesValidation des cibles
+Ajustement du périmètreCartographie des actifs
+Liste priorisée des services exposés2. Scan de vulnérabilitésDétecter les failles connues et erreurs de configurationScans réseau et applicatifs
+Tests SSL/TLS
+Analyse des dépendancesAnalyse de la pertinence des résultats
+Filtrage des faux positifsListe des vulnérabilités classées par criticité3. ExploitationVérifier l’exploitabilité réelle des vulnérabilitésLancement de scénarios d’exploitation
+Tests d’authentification automatisésChoix des vecteurs d’attaque
+Adaptation des scénariosPreuves d’exploitation
+Indicateurs de détection4. Postexploitation & analyseÉvaluer l’impact d’une compromissionCollecte automatisée des informations postexploitationAnalyse des chemins d’attaque
+Évaluation de l’impact métierScénarios d’attaque validés
+Évaluation des risques5. ReportingRestituer des résultats clairs et exploitablesAgrégation des résultats
+Génération automatique des rapportsRelecture et contextualisationRapport final (PDF/HTML/DOCX)
+Recommandations
+Outils intégrés à la toolbox automatisée – Commandes et arguments
+
+OutilPhaseCommande CLI prioritaireArguments clésNmapReconnaissancenmap <target>-sS (SYN scan)
+-sV (versions)
+-O (OS)
+-p- (tous ports)
+--script (NSE)
+-oX / -oA (export XML)AmassReconnaissanceamass enum -d <domain>-d (domaine)
+-passive / -active
+-json (sortie structurée)theHarvesterReconnaissancetheHarvester -d <domain>-d (domaine)
+-b (sources)
+-f (export fichier)MetasploitExploitationmsfconsole -x "<commands>"-q (quiet)
+-x (script auto)
+use / set / runWireshark (tshark)Analyse des fluxtshark -i <iface>-i (interface)
+-f (capture filter)
+-Y (display filter)
+-w (pcap)Suricata / SnortDétectionsuricata -i <iface>Règles IDS
+Logs d’alertes
+Export JSONELK StackDétection / AnalyseAPI / ingestionIndexation logs
+Requêtes JSONOWASP ZAPScan applicatifzap.sh -quickurl <url>-daemon
+-quickurl
+-quickout
+-config api.disablekey=trueBurp Suite (partiel)Scan applicatifCLI / APILancement scans
+ExtensionsSQLmapExploitationsqlmap -u <url>-u
+--batch
+--risk
+--level
+--dumpOWASP Dependency-CheckDépendancesdependency-check.sh --scan <path>--scan
+--format JSON/XML
+--outffufFuzzingffuf -u <url>-u (URL)
+-w (wordlist)
+-mc
+-of jsonNucleiScan vulnérabilitésnuclei -u <url>-u / -l
+-t (templates)
+-severity
+-jsonOpenVAS / GreenboneScan réseaugvm-cli socket --xml <file>Auth GMP
+--xml (résultats)NessusScan réseaunessuscli scan launch <id>Lancement scan
+Export résultatsHydraAuthentificationhydra <service>://<target>-l / -L
+-p / -P
+-tAircrack-ng (partiel)WiFiaircrack-ng <capture.cap>-w (wordlist)
+Fichiers .capCrackMapExec / NetExecRéseau / ADnxc smb <target>smb / ldap / winrm
+-u / -p
+--execNiktoScan webnikto -h <host>-h
+-ssl
+-o
+-Format jsonSSLyzeSSL/TLSsslyze <host>--regular
+--json_outResponder (partiel)MITMresponder.py -I <iface>-I
+-A
+-w -r -fBloodHound (collecte) (partiel)Postexploitationbloodhound-python -u <user>-u / -p
+-d
+-c AllJohn the RipperMots de passejohn <hashes>--wordlist
+--rules
+--formatHashcatMots de passehashcat -m <type> -a 0 <hashes>-m (hash)
+-a (mode)
+-wAcunetix (partiel)Scan webAPI / CLItarget_id
+scan_profile_id
+Export résultats
+
+
+
+Outils par phase du workflow
+
+OutilPhase principaleRôle dans la toolboxNmap1. ReconnaissanceDécouverte des hôtes, ports, services et technologiesAmass1. ReconnaissanceCartographie de la surface d’attaque (domaines, sous-domaines)theHarvester1. ReconnaissanceCollecte d’informations OSINT (emails, hôtes, domaines)OpenVAS / Greenbone2. Scan de vulnérabilitésDétection automatisée des vulnérabilités réseauNessus2. Scan de vulnérabilitésScan de vulnérabilités systèmes et servicesNuclei2. Scan de vulnérabilitésDétection de vulnérabilités connues via templatesOWASP ZAP2. Scan de vulnérabilitésScan automatisé des applications web et APINikto2. Scan de vulnérabilitésDétection de failles sur serveurs webSSLyze2. Scan de vulnérabilitésAnalyse des configurations SSL/TLSOWASP Dependency-Check2. Scan de vulnérabilitésAnalyse des dépendances logicielles vulnérablesffuf2. Scan de vulnérabilitésFuzzing de paramètres, endpoints et cheminsMetasploit3. ExploitationExploitation contrôlée des vulnérabilités détectéesSQLmap3. ExploitationExploitation automatisée des injections SQLHydra3. ExploitationTests d’authentification par force bruteCrackMapExec / NetExec3. ExploitationExploitation et mouvements latéraux en environnement ADResponder (partiel)3. ExploitationAttaques MITM contrôlées et collecte d’identifiantsAircrack-ng (partiel)3. ExploitationAttaques sur réseaux Wi-FiBloodHound (collecte)4. Post-exploitation & analyseAnalyse des relations et chemins d’attaque Active DirectoryWireshark (tshark)4. Post-exploitation & analyseAnalyse approfondie des flux réseauSuricata / Snort4. Post-exploitation & analyseVérification de la détection des attaquesELK Stack4. Post-exploitation & analyseCentralisation et analyse des logs de sécuritéJohn the Ripper4. Post-exploitation & analyseAudit des mots de passe récupérésHashcat4. Post-exploitation & analyseCassage de mots de passe à grande échelleAcunetix (partiel)2. Scan de vulnérabilitésScan automatisé des applications web internes
+
+
+Traduction directe en blocs de travail (exécution du projet)
+Bloc 1 — Architecture
+* Core Python
+* Gestion des modules
+* Orchestrateur de phases
+* Base de données + stockage
+Bloc 2 — Modules pentest
+* Reconnaissance (Nmap, Amass, theHarvester)
+* Scan (Nessus, OpenVAS, ZAP, Nuclei…)
+* Exploitation (Metasploit, SQLmap, Hydra…)
+* Post-exploitation (BloodHound, John, Hashcat…)
+Bloc 3 — Interface
+* CLI ou Web minimal
+* Lancement d’un pentest
+* Suivi de l’état (en cours / terminé / erreur)
+Bloc 4 — Reporting
+* Agrégation des résultats
+* Génération automatique
+* Export multi-formats
+Bloc 5 — Sécurité & qualité
+* Authentification
+* Chiffrement
+* Logs
+* Gestion des rôles
+
+
+
+

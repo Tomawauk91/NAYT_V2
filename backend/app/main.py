@@ -11,7 +11,7 @@ from celery.result import AsyncResult
 from datetime import timedelta
 
 # Create tables
-models.Base.metadata.create_all(bind=engine)
+# models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="PentestManager Pro API")
 
@@ -25,6 +25,25 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup_event():
+    # Wait for DB
+    import time
+    from sqlalchemy.exc import OperationalError
+    
+    max_retries = 30
+    retry_interval = 2
+    
+    for i in range(max_retries):
+        try:
+            # Try to create tables to check connection
+            models.Base.metadata.create_all(bind=engine)
+            print("Database connected and tables created.")
+            break
+        except Exception as e:
+            print(f"Database connection failed (attempt {i+1}/{max_retries}): {e}")
+            time.sleep(retry_interval)
+    else:
+        print("Could not connect to database after many retries.")
+
     # Create default user if not exists
     db = database.SessionLocal()
     if not db.query(models.User).filter(models.User.username == "admin").first():
@@ -157,12 +176,18 @@ def list_tools(current_user: models.User = Depends(auth.get_current_user)):
     """
     ts = ["nmap", "nikto", "sqlmap", "dirb", "gobuster", 
           "curl", "wget", "netcat", "dnsrecon", 
-          "whatweb", "whois", "dig", "hydra"]
+          "whatweb", "whois", "dig", "hydra",
+          "sslscan", "testssl", "traceroute", 
+          "enum4linux", "smbclient", "ftp",
+          "amass", "theharvester", "tshark", "suricata", 
+          "zaproxy", "ffuf", "nuclei", "aircrack-ng", 
+          "netexec", "sslyze", "responder", "hashcat", "john"]
+    return {"tools": ts}
     return {"tools": ts}
 
 @app.post("/scan/auto")
 def trigger_auto_scan(scan: schemas.AutoScanRequest, current_user: models.User = Depends(auth.get_current_user)):
-    task = tasks.run_auto_scan_task.delay(scan.target, scan.tools)
+    task = tasks.run_auto_scan_task.delay(scan.target, scan.tools, scan.port)
     return {"task_id": task.id, "status": "submitted"}
 
 @app.post("/scan/{task_id}/stop")
