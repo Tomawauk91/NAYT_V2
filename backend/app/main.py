@@ -50,7 +50,7 @@ def startup_event():
         # Short password to avoid bcrypt 72 bytes limit issue with some versions/encoding
         # "admin" is very short, so it's fine.
         hashed_pwd = auth.get_password_hash("admin")
-        user = models.User(username="admin", hashed_password=hashed_pwd)
+        user = models.User(username="admin", hashed_password=hashed_pwd, role="Admin")
         db.add(user)
         db.commit()
     db.close()
@@ -83,7 +83,7 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db), current
     if db_user:
         raise HTTPException(status_code=400, detail="Username already registered")
     hashed_password = auth.get_password_hash(user.password)
-    db_user = models.User(username=user.username, hashed_password=hashed_password)
+    db_user = models.User(username=user.username, hashed_password=hashed_password, role=user.role)
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
@@ -190,6 +190,12 @@ def trigger_auto_scan(scan: schemas.AutoScanRequest, current_user: models.User =
     task = tasks.run_auto_scan_task.delay(scan.target, scan.tools, scan.port)
     return {"task_id": task.id, "status": "submitted"}
 
+
+@app.post("/scan/custom")
+def trigger_custom_scan(scan: schemas.CustomCommandRequest, current_user: models.User = Depends(auth.get_current_user)):
+    task = tasks.run_custom_command_task.delay(scan.command)
+    return {"task_id": task.id, "status": "submitted"}
+
 @app.post("/scan/{task_id}/stop")
 def stop_scan(task_id: str, current_user: models.User = Depends(auth.get_current_user)):
     """
@@ -256,3 +262,7 @@ def generate_report(mission_id: int, db: Session = Depends(get_db), current_user
     except Exception as e:
         # Fallback if key invalid or API error
         return {"report": f"Error generating report: {str(e)}"}
+
+@app.get("/users/me", response_model=schemas.UserResponse)
+def read_users_me(current_user: models.User = Depends(auth.get_current_user)):
+    return current_user

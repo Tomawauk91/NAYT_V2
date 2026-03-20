@@ -12,6 +12,15 @@ export interface ScanResult {
 
 export const toolsService = {
   // Auth
+  async getMe(): Promise<any> {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/users/me`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error('Failed to get user');
+      return await response.json();
+  },
+
   async login(username: string, password: string): Promise<{access_token: string}> {
       const formData = new URLSearchParams();
       formData.append('username', username);
@@ -153,6 +162,26 @@ export const toolsService = {
       return await response.json();
   },
 
+  
+  async runCustomScan(command: string) {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_BASE_URL}/scan/custom`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ command }),
+    });
+
+    if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Custom scan request failed: ${errText}`);
+    }
+
+    return await response.json(); // Returns { task_id, status }
+  },
+
   async runAutoScan(target: string, tools: string[], port: string = "") {
     const token = localStorage.getItem('token');
     const response = await fetch(`${API_BASE_URL}/scan/auto`, {
@@ -184,7 +213,8 @@ export const toolsService = {
     });
 
     if (!response.ok) {
-        throw new Error('Scan request failed');
+        const errText = await response.text();
+        throw new Error(`Scan request failed: ${errText}`);
     }
 
     return await response.json(); // Returns { task_id, status }

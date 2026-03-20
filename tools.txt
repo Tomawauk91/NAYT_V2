@@ -1,0 +1,127 @@
+   414	                    <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+   415	                        <button 
+   416	                            onClick={() => runCommand('Nmap Port Scan', `nmap -sT -sV -T4 -v ${targetPort ? '-p ' + targetPort : '-p-'} ${mission.target}`)}
+   417	                            disabled={isCommandRunning}
+   418	                            className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all"
+   419	                        >
+   420	                            <div>
+   421	                                <span className="block text-slate-900 dark:text-white font-medium">{t.nmapBtn}</span>
+   422	                                <span className="text-xs text-slate-500 dark:text-slate-400">{t.nmapDesc}</span>
+   423	                            </div>
+   424	                            <PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors" size={20} />
+   425	                        </button>
+   426	                        <button 
+   427	                            onClick={() => runCommand('Nikto Web Scan', `nikto -h ${mission.target} ${targetPort ? '-p ' + targetPort : ''} -ask no -nointeractive -maxtime 5m`)}
+   428	                            disabled={isCommandRunning}
+   429	                            className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all"
+   430	                        >
+   431	                            <div>
+   432	                                <span className="block text-slate-900 dark:text-white font-medium">{t.niktoBtn}</span>
+   433	                                <span className="text-xs text-slate-500 dark:text-slate-400">{t.niktoDesc}</span>
+   434	                            </div>
+   435	                            <PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-orange-500 dark:group-hover:text-orange-400 transition-colors" size={20} />
+   436	                        </button>
+   437	                         <button 
+   438	                            onClick={() => runCommand('Hydra Brute Force', `hydra -l admin -P /usr/share/wordlists/rockyou.txt ssh://${mission.target}${targetPort ? ':' + targetPort : ''}`)}
+   439	                            disabled={isCommandRunning}
+   440	                            className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all"
+   441	                        >
+   442	                            <div>
+   443	                                <span className="block text-slate-900 dark:text-white font-medium">{t.hydraBtn}</span>
+   444	                                <span className="text-xs text-slate-500 dark:text-slate-400">{t.hydraDesc}</span>
+   445	                            </div>
+   446	                            <PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-red-500 dark:group-hover:text-red-400 transition-colors" size={20} />
+   447	                        </button>
+   448	                         <button onClick={() => runCommand('SQLMap', `sqlmap -u http://${mission.target}${targetPort ? ':' + targetPort : ''} --batch`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   449	                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.sqlmapBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.sqlmapDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   450	                        </button>
+   451	                         <button onClick={() => runCommand('Dirb', `dirb http://${mission.target}${targetPort ? ':' + targetPort : ''}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   452	                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.dirbBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.dirbDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   453	                        </button>
+   454	                         <button onClick={() => runCommand('Gobuster', `gobuster dir -u http://${mission.target}${targetPort ? ':' + targetPort : ''} -w /usr/share/wordlists/dirb/common.txt -k -b 404,301,302,500,501`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   455	                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.gobusterBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.gobusterDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   456	                        </button>
+   457	                         <button onClick={() => runCommand('Curl', `curl -k -I ${mission.target}${targetPort ? ':' + targetPort : ''}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   458	                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.curlBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.curlDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   459	                        </button>
+   460	                         <button onClick={() => runCommand('Wget', `wget ${mission.target}${targetPort ? ':' + targetPort : ''}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   461	                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.wgetBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.wgetDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   462	                        </button>
+   463	                         <button onClick={() => runCommand('Netcat', `nc -zv ${mission.target} 80`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   464	                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.netcatBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.netcatDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   465	                        </button>
+   466	                         <button onClick={() => runCommand('DNSRecon', `dnsrecon -d ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   467	                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.dnsreconBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.dnsreconDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   468	                        </button>
+   469	                         <button onClick={() => runCommand('WhatWeb', `whatweb ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   470	                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.whatwebBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.whatwebDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   471	                        </button>
+   472	                         <button onClick={() => runCommand('Whois', `whois ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   473	                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.whoisBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.whoisDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   474	                        </button>
+   475	                         <button onClick={() => runCommand('Dig', `dig ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   476	                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.digBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.digDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   477	                        </button>
+   478	                         <button onClick={() => runCommand('SSLScan', `sslscan ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   479	                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.sslscanBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.sslscanDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   480	                        </button>
+   481	                         <button onClick={() => runCommand('TestSSL', `testssl.sh ${mission.target}${targetPort ? ':' + targetPort : ''}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   482	                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.testsslBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.testsslDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   483	                        </button>
+   484	                         <button onClick={() => runCommand('Traceroute', `traceroute ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   485	                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.tracerouteBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.tracerouteDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   486	                        </button>
+   487	                         <button onClick={() => runCommand('Enum4Linux', `enum4linux -a ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   488	                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.enum4linuxBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.enum4linuxDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   489	                        </button>
+   490	                         <button onClick={() => runCommand('SMBClient', `smbclient -L ${mission.target} -N`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   491	                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.smbclientBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.smbclientDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   492	                        </button>
+   493	                         <button onClick={() => runCommand('FTP', `ftp -n ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   494	                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.ftpBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.ftpDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   495	                        </button>
+   496	                         <button onClick={() => runCommand('Amass', `amass enum -d ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   497	                            <div><span className="block text-slate-900 dark:text-white font-medium">Amass</span><span className="text-xs text-slate-500 dark:text-slate-400">Subdomain Enum</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   498	                        </button>
+   499	                         <button onClick={() => runCommand('TheHarvester', `theHarvester -d ${mission.target} -b all`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   500	                            <div><span className="block text-slate-900 dark:text-white font-medium">TheHarvester</span><span className="text-xs text-slate-500 dark:text-slate-400">OSINT Gathering</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   501	                        </button>
+   502	                         <button onClick={() => runCommand('Metasploit PortScan', `msfconsole -q -x "use auxiliary/scanner/portscan/tcp; set RHOSTS ${mission.target}; run; exit"`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   503	                            <div><span className="block text-slate-900 dark:text-white font-medium">Metasploit</span><span className="text-xs text-slate-500 dark:text-slate-400">Auxiliary TCP Scan</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-red-500 transition-colors" size={20} />
+   504	                        </button>
+   505	                         <button onClick={() => runCommand('TShark', `tshark -i eth0 -a duration:10 -f "host ${mission.target}"`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   506	                            <div><span className="block text-slate-900 dark:text-white font-medium">Wireshark (CLI)</span><span className="text-xs text-slate-500 dark:text-slate-400">Capture 10s Traffic</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   507	                        </button>
+   508	                         <button onClick={() => runCommand('Suricata', `suricata -i eth0 --init-errors-fatal`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   509	                            <div><span className="block text-slate-900 dark:text-white font-medium">Suricata</span><span className="text-xs text-slate-500 dark:text-slate-400">IDS Network Monitor</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   510	                        </button>
+   511	                         <button onClick={() => runCommand('ZAP', `zaproxy -cmd -quickurl http://${mission.target}${targetPort ? ':' + targetPort : ''}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   512	                            <div><span className="block text-slate-900 dark:text-white font-medium">OWASP ZAP</span><span className="text-xs text-slate-500 dark:text-slate-400">Web Scanner</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   513	                        </button>
+   514	                         <button onClick={() => runCommand('Nuclei', `nuclei -u http://${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   515	                            <div><span className="block text-slate-900 dark:text-white font-medium">Nuclei</span><span className="text-xs text-slate-500 dark:text-slate-400">Vuln Scanner</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-orange-500 transition-colors" size={20} />
+   516	                        </button>
+   517	                         <button onClick={() => runCommand('Ffuf', `ffuf -u http://${mission.target}/FUZZ -w /usr/share/wordlists/dirb/common.txt`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   518	                            <div><span className="block text-slate-900 dark:text-white font-medium">Ffuf</span><span className="text-xs text-slate-500 dark:text-slate-400">Fast Fuzzer</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   519	                        </button>
+   520	                         <button onClick={() => runCommand('NetExec', `nxc smb ${mission.target} ${targetPort ? '--port ' + targetPort : ''}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   521	                            <div><span className="block text-slate-900 dark:text-white font-medium">NetExec</span><span className="text-xs text-slate-500 dark:text-slate-400">Network Execution</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-red-500 transition-colors" size={20} />
+   522	                        </button>
+   523	                         <button onClick={() => runCommand('Aircrack-ng', `aircrack-ng --test`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   524	                            <div><span className="block text-slate-900 dark:text-white font-medium">Aircrack</span><span className="text-xs text-slate-500 dark:text-slate-400">Speed Benchmark</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   525	                        </button>
+   526	                         <button onClick={() => runCommand('John', `john --test`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   527	                            <div><span className="block text-slate-900 dark:text-white font-medium">John the Ripper</span><span className="text-xs text-slate-500 dark:text-slate-400">Speed Test</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-red-500 transition-colors" size={20} />
+   528	                        </button>
+   529	                         <button onClick={() => runCommand('Hashcat', `hashcat -b`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   530	                            <div><span className="block text-slate-900 dark:text-white font-medium">Hashcat</span><span className="text-xs text-slate-500 dark:text-slate-400">GPU Benchmark</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-red-500 transition-colors" size={20} />
+   531	                        </button>
+   532	                         <button onClick={() => runCommand('Responder', `responder -I eth0 -A`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   533	                            <div><span className="block text-slate-900 dark:text-white font-medium">Responder</span><span className="text-xs text-slate-500 dark:text-slate-400">Analyze Mode</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-red-500 transition-colors" size={20} />
+   534	                        </button>
+   535	                         <button onClick={() => runCommand('BloodHound', `bloodhound-python -u 'User' -p 'P@ssword!' -d ${mission.target} -c All`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
+   536	                            <div><span className="block text-slate-900 dark:text-white font-medium">BloodHound</span><span className="text-xs text-slate-500 dark:text-slate-400">AD Collection</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
+   537	                        </button>
+   538	                    </div>
+   539	                </div>
+   540	                

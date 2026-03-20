@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Mission, Vulnerability, Criticality, Status, Language } from '../types';
 import { generateExecutiveSummary } from '../services/geminiService';
 import { toolsService } from '../services/apiService';
-import { Play, FileText, CheckCircle, AlertTriangle, Terminal as TerminalIcon, Eye, Search, Command, PlayCircle, Zap } from 'lucide-react';
+import { Play, Edit2, FileText, CheckCircle, AlertTriangle, Terminal as TerminalIcon, Eye, Search, Command, PlayCircle, Zap } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { translations } from '../translations';
 
@@ -11,10 +11,14 @@ interface MissionControlProps {
   onBack: () => void;
   notify: (type: 'success' | 'error', message: string) => void;
   lang: Language;
+  userRole: string;
 }
 
-export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack, notify, lang }) => {
+export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack, notify, lang, userRole }) => {
   const t = translations[lang];
+  const [customCLIInput, setCustomCLIInput] = useState('');
+  const [editingToolIdx, setEditingToolIdx] = useState<number | null>(null);
+  const [editingToolCmd, setEditingToolCmd] = useState('');
   const [activeTab, setActiveTab] = useState<'overview' | 'actions' | 'findings' | 'report' | 'auto'>('overview');
   const [report, setReport] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -27,6 +31,15 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastOutputRef = useRef<string>(""); // To track streaming output position
   
+  
+  // Custom CLI Terminal State
+  const [customTerminalOutput, setCustomTerminalOutput] = useState<string[]>([]);
+  const [isCustomCommandRunning, setIsCustomCommandRunning] = useState(false);
+  const [currentCustomTaskId, setCurrentCustomTaskId] = useState<string | null>(null);
+  const customScrollRef = useRef<HTMLDivElement>(null);
+  const customLastOutputRef = useRef<string>(""); 
+  const isCustomScanRunningRef = useRef(false);
+
   // Auto-Scan Selection State
   const [selectedAutoTools, setSelectedAutoTools] = useState<string[]>([
       "nmap", "whois", "dnsrecon", "whatweb"
@@ -75,6 +88,12 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
     }
   }, [terminalOutput]);
 
+  useEffect(() => {
+    if (customScrollRef.current) {
+        customScrollRef.current.scrollTop = customScrollRef.current.scrollHeight;
+    }
+  }, [customTerminalOutput]);
+
   const handleStop = async () => {
       if (!currentTaskId) return;
       // Signal stop for the ref-based poller
@@ -104,10 +123,10 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
     try {
         // Step 1: Trigger scan
         // Extract tool name from command string (e.g., "nmap" from "nmap -sV ...")
-        const tool = command.split(' ')[0].toLowerCase();
+        const tool = command.trim().split(' ')[0].toLowerCase();
         
         // Remove tool name from options (everything after first space)
-        const options = command.substring(tool.length + 1);
+        const options = command.trim().substring(tool.length).trim();
 
         const { task_id } = await toolsService.runScan(tool, mission.target, options);
         setCurrentTaskId(task_id);
@@ -183,6 +202,86 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
     }
   };
 
+  
+  const handleCustomStop = async () => {
+      if (!currentCustomTaskId) return;
+      isCustomScanRunningRef.current = false;
+      try {
+          await toolsService.stopScan(currentCustomTaskId);
+          notify('success', 'Stopping custom command...');
+          setCustomTerminalOutput(prev => [...prev, '[!] Command stopped by user.']);
+          setIsCustomCommandRunning(false);
+          setCurrentCustomTaskId(null);
+      } catch (e) {
+          notify('error', 'Failed to stop command.');
+      }
+  };
+
+  const runCustomCommand = async (command: string) => {
+    if (isCustomCommandRunning || !command.trim()) return;
+    setIsCustomCommandRunning(true);
+    isCustomScanRunningRef.current = true;
+
+    notify('success', `Started custom command...`);
+    setCustomTerminalOutput(prev => [...prev, `root@pentest-box:~# ${command}`]);
+    customLastOutputRef.current = "";
+
+    try {
+        const { task_id } = await toolsService.runCustomScan(command);
+        setCurrentCustomTaskId(task_id);
+        setCustomTerminalOutput(prev => [...prev, `[+] Task submitted with ID: ${task_id}`]);
+
+        const pollInterval = setInterval(async () => {
+            if (!isCustomScanRunningRef.current) { 
+                 clearInterval(pollInterval);
+                 return;
+            }
+            try {
+                const statusData = await toolsService.getScanStatus(task_id);
+                if (statusData.status === 'SUCCESS') {
+                    clearInterval(pollInterval);
+                    setIsCustomCommandRunning(false);
+                    setCurrentCustomTaskId(null);
+                    isCustomScanRunningRef.current = false;
+                    notify('success', 'Command finished successfully.');
+                    if (statusData.result && statusData.result.output) {
+                         const currentFull = statusData.result.output;
+                         const remainingNew = currentFull.substring(customLastOutputRef.current.length);
+                         if (remainingNew.length > 0) {
+                            remainingNew.split('\n').forEach((line: string) => {
+                                setCustomTerminalOutput(prev => [...prev, line]);
+                            });
+                         }
+                    }
+                } else if (statusData.status === 'FAILURE') {
+                    clearInterval(pollInterval);
+                    setIsCustomCommandRunning(false);
+                    setCurrentCustomTaskId(null);
+                    isCustomScanRunningRef.current = false;
+                    notify('error', 'Command failed.');
+                    setCustomTerminalOutput(prev => [...prev, `[!] Error: ${statusData.result}`]);
+                } else if (statusData.status === 'PROGRESS') {
+                    if (statusData.result && statusData.result.output) {
+                        const currentFull = statusData.result.output;
+                        const newPart = currentFull.substring(customLastOutputRef.current.length);
+                        if (newPart.length > 0) {
+                            newPart.split('\n').forEach((line: string) => {
+                                if (line !== "") setCustomTerminalOutput(prev => [...prev, line]);
+                            });
+                            customLastOutputRef.current = currentFull;
+                        }
+                    }
+                }
+            } catch (err) {}
+        }, 1000);
+    } catch (error) {
+        setIsCustomCommandRunning(false);
+        isCustomScanRunningRef.current = false;
+        setCurrentCustomTaskId(null);
+        notify('error', 'Failed to start custom command');
+        setCustomTerminalOutput(prev => [...prev, `[!] Failed to start: ${error}`]);
+    }
+  };
   const runAutoScan = async () => {
     if (isCommandRunning) return;
     if (selectedAutoTools.length === 0) {
@@ -327,9 +426,10 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
           { id: 'overview', label: t.overview },
           { id: 'actions', label: t.commandCenter },
           { id: 'auto', label: 'Auto-Pilot' },
+            { id: 'custom', label: t.customCLI || 'Custom CLI' },
           { id: 'findings', label: t.findingsLog },
           { id: 'report', label: t.aiReport }
-        ].map((tab) => (
+        ].filter(tab => !((userRole === 'Viewer' || userRole === 'viewer' || userRole === 'VIEWER') && (tab.id === 'actions' || tab.id === 'custom' || tab.id === 'auto'))).map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
@@ -411,132 +511,105 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                             className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded px-2 py-1 text-xs w-24 focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white placeholder:text-slate-400"
                         />
                     </div>
+                    
                     <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-                        <button 
-                            onClick={() => runCommand('Nmap Port Scan', `nmap -sT -sV -T4 -v ${targetPort ? '-p ' + targetPort : '-p-'} ${mission.target}`)}
-                            disabled={isCommandRunning}
-                            className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all"
-                        >
-                            <div>
-                                <span className="block text-slate-900 dark:text-white font-medium">{t.nmapBtn}</span>
-                                <span className="text-xs text-slate-500 dark:text-slate-400">{t.nmapDesc}</span>
+                        {[
+                            { name: 'Nmap Port Scan', label: t.nmapBtn, desc: t.nmapDesc, cmd: `nmap -sT -sV -T4 -v ${targetPort ? '-p ' + targetPort : '-p-'} ${mission.target}`, color: 'group-hover:text-blue-500' },
+                            { name: 'Nikto Web Scan', label: t.niktoBtn, desc: t.niktoDesc, cmd: `nikto -h ${mission.target} ${targetPort ? '-p ' + targetPort : ''} -ask no -nointeractive -maxtime 5m`, color: 'group-hover:text-orange-500' },
+                            { name: 'Hydra Brute Force', label: t.hydraBtn, desc: t.hydraDesc, cmd: `hydra -l admin -P /usr/share/wordlists/rockyou.txt ssh://${mission.target}${targetPort ? ':' + targetPort : ''}`, color: 'group-hover:text-red-500' },
+                            { name: 'SQLMap', label: t.sqlmapBtn, desc: t.sqlmapDesc, cmd: `sqlmap -u http://${mission.target}${targetPort ? ':' + targetPort : ''} --batch`, color: 'group-hover:text-blue-500' },
+                            { name: 'Dirb', label: t.dirbBtn, desc: t.dirbDesc, cmd: `dirb http://${mission.target}${targetPort ? ':' + targetPort : ''}`, color: 'group-hover:text-blue-500' },
+                            { name: 'Gobuster', label: t.gobusterBtn, desc: t.gobusterDesc, cmd: `gobuster dir -u http://${mission.target}${targetPort ? ':' + targetPort : ''} -w /usr/share/wordlists/dirb/common.txt -k -b 404,301,302,500,501`, color: 'group-hover:text-blue-500' },
+                            { name: 'Curl', label: t.curlBtn, desc: t.curlDesc, cmd: `curl -k -I ${mission.target}${targetPort ? ':' + targetPort : ''}`, color: 'group-hover:text-blue-500' },
+                            { name: 'Wget', label: t.wgetBtn, desc: t.wgetDesc, cmd: `wget ${mission.target}${targetPort ? ':' + targetPort : ''}`, color: 'group-hover:text-blue-500' },
+                            { name: 'Netcat', label: t.netcatBtn, desc: t.netcatDesc, cmd: `nc -zv ${mission.target} 80`, color: 'group-hover:text-blue-500' },
+                            { name: 'DNSRecon', label: t.dnsreconBtn, desc: t.dnsreconDesc, cmd: `dnsrecon -d ${mission.target}`, color: 'group-hover:text-blue-500' },
+                            { name: 'WhatWeb', label: t.whatwebBtn, desc: t.whatwebDesc, cmd: `whatweb ${mission.target}`, color: 'group-hover:text-blue-500' },
+                            { name: 'Whois', label: t.whoisBtn, desc: t.whoisDesc, cmd: `whois ${mission.target}`, color: 'group-hover:text-blue-500' },
+                            { name: 'Dig', label: t.digBtn, desc: t.digDesc, cmd: `dig ${mission.target}`, color: 'group-hover:text-blue-500' },
+                            { name: 'SSLScan', label: t.sslscanBtn, desc: t.sslscanDesc, cmd: `sslscan ${mission.target}`, color: 'group-hover:text-blue-500' },
+                            { name: 'TestSSL', label: t.testsslBtn, desc: t.testsslDesc, cmd: `testssl.sh ${mission.target}${targetPort ? ':' + targetPort : ''}`, color: 'group-hover:text-blue-500' },
+                            { name: 'Traceroute', label: t.tracerouteBtn, desc: t.tracerouteDesc, cmd: `traceroute ${mission.target}`, color: 'group-hover:text-blue-500' },
+                            { name: 'Enum4Linux', label: t.enum4linuxBtn, desc: t.enum4linuxDesc, cmd: `enum4linux -a ${mission.target}`, color: 'group-hover:text-blue-500' },
+                            { name: 'SMBClient', label: t.smbclientBtn, desc: t.smbclientDesc, cmd: `smbclient -L ${mission.target} -N`, color: 'group-hover:text-blue-500' },
+                            { name: 'FTP', label: t.ftpBtn, desc: t.ftpDesc, cmd: `ftp -n ${mission.target}`, color: 'group-hover:text-blue-500' },
+                            { name: 'Amass', label: "Amass", desc: "Subdomain Enum", cmd: `amass enum -d ${mission.target}`, color: 'group-hover:text-blue-500' },
+                            { name: 'TheHarvester', label: "TheHarvester", desc: "OSINT Gathering", cmd: `theHarvester -d ${mission.target} -b all`, color: 'group-hover:text-blue-500' },
+                            { name: 'Metasploit PortScan', label: "Metasploit", desc: "Auxiliary TCP Scan", cmd: `msfconsole -q -x "use auxiliary/scanner/portscan/tcp; set RHOSTS ${mission.target}; run; exit"`, color: 'group-hover:text-red-500' },
+                            { name: 'TShark', label: "Wireshark (CLI)", desc: "Capture 10s Traffic", cmd: `tshark -i eth0 -a duration:10 -f "host ${mission.target}"`, color: 'group-hover:text-blue-500' },
+                            { name: 'Suricata', label: "Suricata", desc: "IDS Network Monitor", cmd: `suricata -i eth0 --init-errors-fatal`, color: 'group-hover:text-blue-500' },
+                            { name: 'ZAP', label: "OWASP ZAP", desc: "Web Scanner", cmd: `zaproxy -cmd -quickurl http://${mission.target}${targetPort ? ':' + targetPort : ''}`, color: 'group-hover:text-blue-500' },
+                            { name: 'Nuclei', label: "Nuclei", desc: "Vuln Scanner", cmd: `nuclei -u http://${mission.target}`, color: 'group-hover:text-orange-500' },
+                            { name: 'Ffuf', label: "Ffuf", desc: "Fast Fuzzer", cmd: `ffuf -u http://${mission.target}/FUZZ -w /usr/share/wordlists/dirb/common.txt`, color: 'group-hover:text-blue-500' },
+                            { name: 'NetExec', label: "NetExec", desc: "Network Execution", cmd: `nxc smb ${mission.target} ${targetPort ? '--port ' + targetPort : ''}`, color: 'group-hover:text-red-500' },
+                            { name: 'Aircrack-ng', label: "Aircrack", desc: "Speed Benchmark", cmd: `aircrack-ng --test`, color: 'group-hover:text-blue-500' },
+                            { name: 'John', label: "John the Ripper", desc: "Speed Test", cmd: `john --test`, color: 'group-hover:text-red-500' },
+                            { name: 'Hashcat', label: "Hashcat", desc: "GPU Benchmark", cmd: `hashcat -b`, color: 'group-hover:text-red-500' },
+                            { name: 'Responder', label: "Responder", desc: "Analyze Mode", cmd: `responder -I eth0 -A`, color: 'group-hover:text-red-500' },
+                            { name: 'BloodHound', label: "BloodHound", desc: "AD Collection", cmd: `bloodhound-python -u 'User' -p 'P@ssword!' -d ${mission.target} -c All`, color: 'group-hover:text-blue-500' },
+                        ].map((tool, idx) => (
+                            <div key={idx} className="w-full bg-slate-50 dark:bg-slate-700 p-4 rounded-lg flex items-center justify-between group transition-all">
+                                {editingToolIdx === idx ? (
+                                    <div className="flex-1 mr-4">
+                                        <input 
+                                            autoFocus
+                                            type="text" 
+                                            value={editingToolCmd}
+                                            onChange={(e) => setEditingToolCmd(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' && !isCommandRunning) {
+                                                    runCommand(tool.name, editingToolCmd);
+                                                    setEditingToolIdx(null);
+                                                }
+                                            }}
+                                            className="w-full bg-slate-100 dark:bg-slate-900 border border-blue-500 rounded px-3 py-2 text-sm focus:outline-none dark:text-green-400 font-mono shadow-sm"
+                                        />
+                                    </div>
+                                ) : (
+                                    <div className="flex-1 cursor-pointer" onClick={() => !isCommandRunning && runCommand(tool.name, tool.cmd)}>
+                                        <span className="block text-slate-900 dark:text-white font-medium">{tool.label}</span>
+                                        <span className="text-xs text-slate-500 dark:text-slate-400">{tool.desc}</span>
+                                    </div>
+                                )}
+                                <div className="flex gap-2 items-center">
+                                    {editingToolIdx === idx ? (
+                                        <>
+                                            <button onClick={(e) => { e.stopPropagation(); setEditingToolIdx(null); }} className="text-slate-500 hover:text-red-500 px-2 py-1 text-xs">Annuler</button>
+                                            <button 
+                                                onClick={(e) => { 
+                                                    e.stopPropagation();
+                                                    runCommand(tool.name, editingToolCmd); 
+                                                    setEditingToolIdx(null); 
+                                                }}
+                                                disabled={isCommandRunning}
+                                                className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md text-xs flex items-center gap-1 shadow-sm"
+                                            >
+                                                <Play size={12}/> Lancer
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); setEditingToolCmd(tool.cmd); setEditingToolIdx(idx); }}
+                                                title="Modifier la commande"
+                                                className="text-slate-400 hover:text-blue-500 p-1.5 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                            >
+                                                <Edit2 size={16} />
+                                            </button>
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); runCommand(tool.name, tool.cmd); }}
+                                                disabled={isCommandRunning}
+                                                className={`text-slate-400 dark:text-slate-500 ${tool.color} transition-colors disabled:opacity-50`}
+                                            >
+                                                <PlayCircle size={20} />
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
                             </div>
-                            <PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors" size={20} />
-                        </button>
-                        <button 
-                            onClick={() => runCommand('Nikto Web Scan', `nikto -h ${mission.target} ${targetPort ? '-p ' + targetPort : ''} -ask no -nointeractive -maxtime 5m`)}
-                            disabled={isCommandRunning}
-                            className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all"
-                        >
-                            <div>
-                                <span className="block text-slate-900 dark:text-white font-medium">{t.niktoBtn}</span>
-                                <span className="text-xs text-slate-500 dark:text-slate-400">{t.niktoDesc}</span>
-                            </div>
-                            <PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-orange-500 dark:group-hover:text-orange-400 transition-colors" size={20} />
-                        </button>
-                         <button 
-                            onClick={() => runCommand('Hydra Brute Force', `hydra -l admin -P /usr/share/wordlists/rockyou.txt ssh://${mission.target}${targetPort ? ':' + targetPort : ''}`)}
-                            disabled={isCommandRunning}
-                            className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all"
-                        >
-                            <div>
-                                <span className="block text-slate-900 dark:text-white font-medium">{t.hydraBtn}</span>
-                                <span className="text-xs text-slate-500 dark:text-slate-400">{t.hydraDesc}</span>
-                            </div>
-                            <PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-red-500 dark:group-hover:text-red-400 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('SQLMap', `sqlmap -u http://${mission.target}${targetPort ? ':' + targetPort : ''} --batch`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.sqlmapBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.sqlmapDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Dirb', `dirb http://${mission.target}${targetPort ? ':' + targetPort : ''}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.dirbBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.dirbDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Gobuster', `gobuster dir -u http://${mission.target}${targetPort ? ':' + targetPort : ''} -w /usr/share/wordlists/dirb/common.txt -k -b 404,301,302,500,501`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.gobusterBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.gobusterDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Curl', `curl -k -I ${mission.target}${targetPort ? ':' + targetPort : ''}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.curlBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.curlDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Wget', `wget ${mission.target}${targetPort ? ':' + targetPort : ''}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.wgetBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.wgetDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Netcat', `nc -zv ${mission.target} 80`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.netcatBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.netcatDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('DNSRecon', `dnsrecon -d ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.dnsreconBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.dnsreconDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('WhatWeb', `whatweb ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.whatwebBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.whatwebDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Whois', `whois ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.whoisBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.whoisDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Dig', `dig ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.digBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.digDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('SSLScan', `sslscan ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.sslscanBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.sslscanDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('TestSSL', `testssl.sh ${mission.target}${targetPort ? ':' + targetPort : ''}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.testsslBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.testsslDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Traceroute', `traceroute ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.tracerouteBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.tracerouteDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Enum4Linux', `enum4linux -a ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.enum4linuxBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.enum4linuxDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('SMBClient', `smbclient -L ${mission.target} -N`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.smbclientBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.smbclientDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('FTP', `ftp -n ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">{t.ftpBtn}</span><span className="text-xs text-slate-500 dark:text-slate-400">{t.ftpDesc}</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Amass', `amass enum -d ${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">Amass</span><span className="text-xs text-slate-500 dark:text-slate-400">Subdomain Enum</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('TheHarvester', `theHarvester -d ${mission.target} -b all`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">TheHarvester</span><span className="text-xs text-slate-500 dark:text-slate-400">OSINT Gathering</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Metasploit PortScan', `msfconsole -q -x "use auxiliary/scanner/portscan/tcp; set RHOSTS ${mission.target}; run; exit"`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">Metasploit</span><span className="text-xs text-slate-500 dark:text-slate-400">Auxiliary TCP Scan</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-red-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('TShark', `tshark -i eth0 -a duration:10 -f "host ${mission.target}"`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">Wireshark (CLI)</span><span className="text-xs text-slate-500 dark:text-slate-400">Capture 10s Traffic</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Suricata', `suricata -i eth0 --init-errors-fatal`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">Suricata</span><span className="text-xs text-slate-500 dark:text-slate-400">IDS Network Monitor</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('ZAP', `zaproxy -cmd -quickurl http://${mission.target}${targetPort ? ':' + targetPort : ''}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">OWASP ZAP</span><span className="text-xs text-slate-500 dark:text-slate-400">Web Scanner</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Nuclei', `nuclei -u http://${mission.target}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">Nuclei</span><span className="text-xs text-slate-500 dark:text-slate-400">Vuln Scanner</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-orange-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Ffuf', `ffuf -u http://${mission.target}/FUZZ -w /usr/share/wordlists/dirb/common.txt`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">Ffuf</span><span className="text-xs text-slate-500 dark:text-slate-400">Fast Fuzzer</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('NetExec', `nxc smb ${mission.target} ${targetPort ? '--port ' + targetPort : ''}`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">NetExec</span><span className="text-xs text-slate-500 dark:text-slate-400">Network Execution</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-red-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Aircrack-ng', `aircrack-ng --test`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">Aircrack</span><span className="text-xs text-slate-500 dark:text-slate-400">Speed Benchmark</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('John', `john --test`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">John the Ripper</span><span className="text-xs text-slate-500 dark:text-slate-400">Speed Test</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-red-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Hashcat', `hashcat -b`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">Hashcat</span><span className="text-xs text-slate-500 dark:text-slate-400">GPU Benchmark</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-red-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('Responder', `responder -I eth0 -A`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">Responder</span><span className="text-xs text-slate-500 dark:text-slate-400">Analyze Mode</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-red-500 transition-colors" size={20} />
-                        </button>
-                         <button onClick={() => runCommand('BloodHound', `bloodhound-python -u 'User' -p 'P@ssword!' -d ${mission.target} -c All`)} disabled={isCommandRunning} className="w-full text-left bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-50 p-4 rounded-lg flex items-center justify-between group transition-all">
-                            <div><span className="block text-slate-900 dark:text-white font-medium">BloodHound</span><span className="text-xs text-slate-500 dark:text-slate-400">AD Collection</span></div><PlayCircle className="text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors" size={20} />
-                        </button>
+                        ))}
                     </div>
-                </div>
+</div>
                 
                 <div className="lg:col-span-2 bg-slate-950 dark:bg-black rounded-xl border border-slate-800 dark:border-slate-700 flex flex-col overflow-hidden h-[500px]">
                     <div className="bg-slate-900 p-3 border-b border-slate-800 flex items-center justify-between">
@@ -680,6 +753,83 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                     </div>
                 </div>
              </div>
+        )}
+
+        
+
+        {activeTab === 'custom' && (
+          <div className="grid grid-cols-1 gap-6 animate-fadeIn h-[600px] flex flex-col">
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Terminal Libre (Root)</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                Exécutez n'importe quelle commande Linux. Ce terminal est indépendant du Command Center.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={customCLIInput}
+                  onChange={(e) => setCustomCLIInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && customCLIInput.trim() && !isCustomCommandRunning) {
+                      runCustomCommand(customCLIInput);
+                      setCustomCLIInput("");
+                    }
+                  }}
+                  className="flex-1 bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg p-3 text-slate-900 dark:text-green-400 font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  placeholder="Ex: apt-get update && apt-get install -y masscan"
+                />
+                <button
+                  onClick={() => {
+                      runCustomCommand(customCLIInput);
+                      setCustomCLIInput("");
+                  }}
+                  disabled={isCustomCommandRunning || !customCLIInput.trim()}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  <Play size={20} /> Exécuter
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-slate-950 dark:bg-black rounded-xl border border-slate-800 dark:border-slate-700 flex flex-col overflow-hidden min-h-0">
+                <div className="bg-slate-900 p-3 border-b border-slate-800 flex items-center justify-between">
+                    <div className="flex gap-1.5 items-center">
+                        <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                        <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                        <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                        <span className="text-xs text-slate-400 ml-2 font-mono">root@pentest-box:~</span>
+                    </div>
+                    {isCustomCommandRunning && (
+                        <button 
+                            onClick={handleCustomStop}
+                            className="px-2 py-0.5 text-xs bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded flex items-center gap-1 transition-colors"
+                        >
+                            <div className="w-1.5 h-1.5 rounded-sm bg-red-500"></div>
+                            STOP
+                        </button>
+                    )}
+                </div>
+                <div className="flex-1 p-4 overflow-y-auto font-mono text-sm" ref={customScrollRef}>
+                    <div className="text-slate-500 mb-2"># Terminal Root Indépendant.</div>
+                    {customTerminalOutput.map((line, idx) => (
+                        <div key={idx} className="mb-1 animate-fadeIn break-words whitespace-pre-wrap">
+                            {line.startsWith('root') ? (
+                                <span className="text-green-400 font-bold">{line}</span>
+                            ) : line.startsWith('[!]') ? (
+                                <span className="text-yellow-400">{line}</span>
+                            ) : line.startsWith('[+]') ? (
+                                <span className="text-emerald-400">{line}</span>
+                            ) : (
+                                <span className="text-slate-300">{line}</span>
+                            )}
+                        </div>
+                    ))}
+                    {isCustomCommandRunning && (
+                        <div className="animate-pulse text-green-400">_</div>
+                    )}
+                    <div ref={customScrollRef} />
+                </div>
+            </div>
+          </div>
         )}
 
         {activeTab === 'findings' && (

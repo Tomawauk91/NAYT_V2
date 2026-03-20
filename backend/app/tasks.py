@@ -325,3 +325,35 @@ def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port
         "command": "auto_scan_adaptive",
         "output": overall_output
     }
+
+@celery_app.task(bind=True)
+def run_custom_command_task(self, command: str):
+    logger.info(f"Executing custom command: {command}")
+    self.update_state(state='PROGRESS', meta={'cmd': command, 'output': 'Starting custom command...'})
+    try:
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+        accumulated_output = ""
+        for line in process.stdout:
+            accumulated_output += line
+            self.update_state(state='PROGRESS', meta={
+                'output': accumulated_output,
+                'cmd': command
+            })
+        process.wait()
+        
+        status_msg = "completed" if process.returncode == 0 else "failed"
+        return {
+            "status": status_msg, 
+            "return_code": process.returncode,
+            "command": command,
+            "output": accumulated_output
+        }
+    except Exception as e:
+        return {"status": "error", "output": str(e)}

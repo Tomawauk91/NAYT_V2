@@ -44,10 +44,12 @@ class TokenData(BaseModel):
 class UserCreate(BaseModel):
     username: str
     password: str
+    role: str = "Viewer"
 
 class UserResponse(BaseModel):
     id: int
     username: str
+    role: str
     
     class Config:
         from_attributes = True
@@ -61,3 +63,5 @@ class AutoScanRequest(BaseModel):
     target: str
     tools: List[str]
     port: Optional[str] = ""
+class CustomCommandRequest(BaseModel):
+    command: str

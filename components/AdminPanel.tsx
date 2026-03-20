@@ -53,7 +53,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
         const mappedUsers = data.map((u: any) => ({
             id: u.id,
             username: u.username,
-            role: u.username === 'admin' ? Role.ADMIN : Role.PENTESTER, // Simple role assumption
+            role: u.role || Role.VIEWER, // Simple role assumption
             lastLogin: 'Unknown',
             password: '', // Hidden
             isTempPassword: false
@@ -93,11 +93,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
     try {
         await toolsService.createUser({
             username: newUser.username,
-            password: tempPassword
+            password: tempPassword, role: newUser.role
         });
         
         setNewUser({ username: '', role: Role.VIEWER });
-        setGeneratedCreds({ username: newUser.username, password: tempPassword });
+        setGeneratedCreds({ username: newUser.username, password: tempPassword, role: newUser.role });
         notify('success', `${t.userCreated} (${newUser.username})`);
         fetchUsers(); // Refresh list
     } catch (error) {
@@ -155,8 +155,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
   };
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    notify('success', t.copied);
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text)
+        .then(() => notify('success', t.copied))
+        .catch(() => notify('error', 'Failed to copy'));
+    } else {
+      // Fallback for non-HTTPS environments (like local network IPs without TLS)
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.position = "fixed";
+      textArea.style.left = "-999999px";
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        notify('success', t.copied);
+      } catch (error) {
+        notify('error', 'Failed to copy');
+      } finally {
+        textArea.remove();
+      }
+    }
   };
 
   return (

@@ -46,10 +46,14 @@ export default function App() {
       const token = localStorage.getItem('token');
       const username = localStorage.getItem('username');
       if (token && username) {
-          // Simple client-side restore for now. 
-          // Ideally verify token with backend /me endpoint
-          setUser({ id: 'u-1', username: username, role: Role.ADMIN, lastLogin: new Date().toISOString(), password: '', isTempPassword: false });
-          fetchMissions();
+          toolsService.getMe().then(userData => {
+              setUser({ id: userData.id, username: userData.username, role: userData.role || Role.VIEWER, lastLogin: new Date().toISOString(), password: '', isTempPassword: false });
+              fetchMissions();
+          }).catch(() => {
+              localStorage.removeItem('token');
+              localStorage.removeItem('username');
+              setUser(null);
+          });
       }
   }, []);
 
@@ -96,10 +100,12 @@ export default function App() {
         localStorage.setItem('token', data.access_token);
         localStorage.setItem('username', username);
         
+        const userData = await toolsService.getMe();
+        
         const loggedUser: User = { 
-            id: 'u-1', 
+            id: userData.id, 
             username: username, 
-            role: Role.ADMIN, 
+            role: userData.role || Role.VIEWER, 
             lastLogin: new Date().toISOString(), 
             password: '', 
             isTempPassword: false 
@@ -415,13 +421,16 @@ export default function App() {
                 onBack={() => setSelectedMission(null)} 
                 notify={addNotification}
                 lang={lang}
+                userRole={user?.role || "Viewer"}
             />
             ) : (
             <>
-                {activeView === 'dashboard' && <Dashboard missions={missions} lang={lang} />}
+                {activeView === 'dashboard' && <Dashboard missions={missions} lang={lang}
+                userRole={user?.role || "Viewer"} />}
                 
                 {activeView === 'missions' && (
                 <div className="space-y-6">
+                    {user.role !== 'Viewer' && user.role !== 'viewer' && user.role !== 'VIEWER' && (
                     <div className="flex justify-end">
                         <button 
                             onClick={() => setShowNewMission(true)}
@@ -430,6 +439,7 @@ export default function App() {
                             <Plus size={16} /> {t.newMission}
                         </button>
                     </div>
+                    )}
                     <div className="grid grid-cols-1 gap-4">
                         {missions.map(mission => (
                         <div 
@@ -437,13 +447,15 @@ export default function App() {
                             onClick={() => setSelectedMission(mission)}
                             className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-500 hover:shadow-lg transition-all cursor-pointer group hover:-translate-y-1 shadow-sm relative"
                         >
-                            <button
-                                onClick={(e) => handleDeleteMission(e, mission.id)}
-                                className="absolute top-6 right-6 p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors z-10"
-                                title={t.delete || "Delete"}
-                            >
-                                <Trash2 size={18} />
-                            </button>
+                            {(user.role === Role.ADMIN || user.role === 'Admin' || user.role === 'admin') && (
+                                <button
+                                    onClick={(e) => handleDeleteMission(e, mission.id)}
+                                    className="absolute top-6 right-6 p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors z-10"
+                                    title={t.delete || "Delete"}
+                                >
+                                    <Trash2 size={18} />
+                                </button>
+                            )}
                             <div className="flex justify-between items-start mb-4">
                                 <div>
                                     <h3 className="text-lg font-semibold text-slate-900 dark:text-white group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors pr-10">{mission.name}</h3>
@@ -469,12 +481,16 @@ export default function App() {
                 </div>
                 )}
 
-                {activeView === 'recon' && <ReconView missions={missions} lang={lang} />}
-                {activeView === 'vulns' && <VulnerabilitiesView missions={missions} lang={lang} />}
-                {activeView === 'reports' && <ReportsView missions={missions} lang={lang} />}
+                {activeView === 'recon' && <ReconView missions={missions} lang={lang}
+                userRole={user?.role || "Viewer"} />}
+                {activeView === 'vulns' && <VulnerabilitiesView missions={missions} lang={lang}
+                userRole={user?.role || "Viewer"} />}
+                {activeView === 'reports' && <ReportsView missions={missions} lang={lang}
+                userRole={user?.role || "Viewer"} />}
 
                 {activeView === 'admin' && user.role === Role.ADMIN && (
-                    <AdminPanel notify={addNotification} users={users} setUsers={setUsers} lang={lang} />
+                    <AdminPanel notify={addNotification} users={users} setUsers={setUsers} lang={lang}
+                userRole={user?.role || "Viewer"} />
                 )}
                 {activeView === 'admin' && user.role !== Role.ADMIN && (
                     <div className="flex flex-col items-center justify-center h-[400px] text-slate-500 animate-fadeIn">
