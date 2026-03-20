@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
@@ -8,8 +9,10 @@ from sqlalchemy.orm import Session
 from .database import get_db
 from .models import User
 
-# Secret key (in prod use env var)
-SECRET_KEY = "CHANGE_THIS_SECRET_KEY_IN_PRODUCTION"
+# Secret key from environment variable
+SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError("JWT_SECRET_KEY environment variable must be set")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30 # User requested 30 minutes
 
