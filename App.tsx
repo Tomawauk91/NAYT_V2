@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { NAV_ITEMS, ADMIN_NAV_ITEM } from './constants';
 import { Role, Mission, User, Notification, Language, Theme } from './types';
 import { translations } from './translations';
@@ -8,7 +8,7 @@ import { NotificationSystem } from './components/NotificationSystem';
 import { AdminPanel } from './components/AdminPanel';
 import { toolsService } from './services/apiService';
 import { ReconView, VulnerabilitiesView, ReportsView } from './components/FunctionalViews';
-import { Shield, LogOut, ChevronRight, User as UserIcon, Lock, Menu, X, Plus, Languages, Sun, Moon, Trash2 } from 'lucide-react';
+import { Shield, LogOut, ChevronRight, User as UserIcon, Lock, Menu, X, Plus, Languages, Sun, Moon, Trash2, Users } from 'lucide-react';
 
 export default function App() {
   const [users, setUsers] = useState<User[]>([]);
@@ -16,7 +16,37 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [lang, setLang] = useState<Language>('en'); // Default Language
   const [theme, setTheme] = useState<Theme>('dark'); // Default Theme
+
+  const [activeUsers, setActiveUsers] = useState<string[]>([]);
+  const [showUsersDropdown, setShowUsersDropdown] = useState(false);
+  const usersDropdownRef = useRef<HTMLDivElement>(null);
   
+  
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (usersDropdownRef.current && !usersDropdownRef.current.contains(event.target as Node)) {
+        setShowUsersDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (usersDropdownRef.current && !usersDropdownRef.current.contains(event.target as Node)) {
+        setShowUsersDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
   const [activeView, setActiveView] = useState('dashboard');
   const [selectedMission, setSelectedMission] = useState<Mission | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -56,6 +86,43 @@ export default function App() {
           });
       }
   }, []);
+
+  
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    if (user && user.username) {
+        let protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/api/ws/users/${user.username}`;
+        
+        try {
+            ws = new WebSocket(wsUrl);
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'sync_users') {
+                        setActiveUsers(data.users);
+                    } else if (data.type === 'user_connected') {
+                        setActiveUsers(data.users);
+                        if (data.username !== user.username) {
+                            addNotification('info', `${data.username} s'est connecté(e)`);
+                        }
+                    } else if (data.type === 'user_disconnected') {
+                        setActiveUsers(data.users);
+                    }
+                } catch (e) {}
+            };
+            
+            ws.onerror = (e) => {
+                console.error("WS Error:", e);
+            };
+        } catch (e) {}
+
+        return () => {
+            if (ws) ws.close();
+        };
+    }
+  }, [user]);
 
   const fetchMissions = async () => {
       try {
@@ -394,7 +461,7 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 p-4 md:p-8 w-full transition-colors duration-300">
         {/* Breadcrumbs / Header */}
-        <header className="flex justify-between items-center mb-8 animate-fadeIn">
+        <header className="flex justify-between items-center mb-8 animate-fadeIn relative z-[100]">
             <div className="flex items-center gap-4">
                 <button 
                     onClick={() => setSidebarOpen(true)}
@@ -402,12 +469,50 @@ export default function App() {
                 >
                     <Menu size={24} />
                 </button>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white relative z-0">
                     {selectedMission ? t.missionControl : (t[activeView as keyof typeof t] || 'Dashboard')}
                 </h2>
             </div>
+
             <div className="flex items-center gap-4">
-                <span className="hidden md:inline-block px-3 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 shadow-sm">
+                
+                {/* Active Users Dropdown (Now placed before System Status, with higher z-index) */}
+                <div className="relative z-[100]" ref={usersDropdownRef}>
+                    <button 
+                        onClick={() => setShowUsersDropdown(!showUsersDropdown)}
+                        className="relative p-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition transform active:scale-90 duration-200"
+                        title="Utilisateurs connectés"
+                    >
+                        <Users size={18} />
+                        {activeUsers.length > 1 && (
+                            <span className="absolute top-0 right-0 h-3 w-3">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                            </span>
+                        )}
+                        <span className="absolute -bottom-1 -right-1 bg-blue-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                            {activeUsers.length}
+                        </span>
+                    </button>
+                    
+                    {showUsersDropdown && (
+                        <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden z-[100] animate-fadeIn">
+                            <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                Utilisateurs actifs
+                            </div>
+                            <ul className="max-h-48 overflow-y-auto">
+                                {activeUsers.map((username, idx) => (
+                                    <li key={idx} className="px-4 py-2 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                                        <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                                        {username} {username === user?.username ? "(Vous)" : ""}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                </div>
+
+                <span className="hidden md:inline-block px-3 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 shadow-sm relative z-0">
                     {t.systemStatus}: <span className="text-emerald-500 dark:text-emerald-400 font-semibold animate-pulse">{t.online}</span>
                 </span>
             </div>

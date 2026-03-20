@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
@@ -266,3 +266,93 @@ def generate_report(mission_id: int, db: Session = Depends(get_db), current_user
 @app.get("/users/me", response_model=schemas.UserResponse)
 def read_users_me(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
+
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: dict = {}
+
+    async def connect(self, websocket: WebSocket, username: str):
+        await websocket.accept()
+        if username not in self.active_connections:
+            self.active_connections[username] = []
+            await self.broadcast({"type": "user_connected", "username": username, "users": list(self.active_connections.keys())}, exclude=username)
+        self.active_connections[username].append(websocket)
+        await websocket.send_json({"type": "sync_users", "users": list(self.active_connections.keys())})
+
+    def disconnect(self, websocket: WebSocket, username: str):
+        if username in self.active_connections:
+            if websocket in self.active_connections[username]:
+                self.active_connections[username].remove(websocket)
+            if len(self.active_connections[username]) == 0:
+                del self.active_connections[username]
+                return True
+        return False
+
+    async def broadcast(self, message: dict, exclude: str = None):
+        for user, connections in self.active_connections.items():
+            if exclude and user == exclude:
+                continue
+            for connection in connections:
+                try:
+                    await connection.send_json(message)
+                except Exception:
+                    pass
+
+ws_manager = ConnectionManager()
+
+@app.websocket("/ws/users/{username}")
+async def websocket_endpoint(websocket: WebSocket, username: str):
+    await ws_manager.connect(websocket, username)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        fully_disconnected = ws_manager.disconnect(websocket, username)
+        if fully_disconnected:
+            await ws_manager.broadcast({"type": "user_disconnected", "username": username, "users": list(ws_manager.active_connections.keys())})
+
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: dict = {}
+
+    async def connect(self, websocket: WebSocket, username: str):
+        await websocket.accept()
+        if username not in self.active_connections:
+            self.active_connections[username] = []
+            await self.broadcast({"type": "user_connected", "username": username, "users": list(self.active_connections.keys())}, exclude=username)
+        self.active_connections[username].append(websocket)
+        await websocket.send_json({"type": "sync_users", "users": list(self.active_connections.keys())})
+
+    def disconnect(self, websocket: WebSocket, username: str):
+        if username in self.active_connections:
+            if websocket in self.active_connections[username]:
+                self.active_connections[username].remove(websocket)
+            if len(self.active_connections[username]) == 0:
+                del self.active_connections[username]
+                return True
+        return False
+
+    async def broadcast(self, message: dict, exclude: str = None):
+        for user, connections in self.active_connections.items():
+            if exclude and user == exclude:
+                continue
+            for connection in connections:
+                try:
+                    await connection.send_json(message)
+                except Exception:
+                    pass
+
+ws_manager = ConnectionManager()
+
+@app.websocket("/ws/users/{username}")
+async def websocket_endpoint(websocket: WebSocket, username: str):
+    await ws_manager.connect(websocket, username)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        fully_disconnected = ws_manager.disconnect(websocket, username)
+        if fully_disconnected:
+            await ws_manager.broadcast({"type": "user_disconnected", "username": username, "users": list(ws_manager.active_connections.keys())})
