@@ -43,6 +43,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy project
 COPY . .
 
+# Create non-root user for security
+RUN useradd --create-home --shell /bin/bash appuser && \
+    chown -R appuser:appuser /app /opt/venv
+
+# Switch to non-root user
+USER appuser
+
 # Run the application
 # We will use a script to start both Celery (if needed in same container) or just the API
 # For now, default CMD is Uvicorn
