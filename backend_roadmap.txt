@@ -1,0 +1,58 @@
+PENTEST MANAGER PRO - BACKEND ROADMAP & DOCUMENTATION
+=====================================================
+
+CURRENT ARCHITECTURE (SIMULATION MODE)
+--------------------------------------
+Currently, this application runs entirely as a Client-Side Single Page Application (SPA) using React and TypeScript.
+To facilitate immediate testing and UI development without requiring complex server infrastructure setup, the "Backend" is simulated within the browser.
+
+1.  **State Management**: Data (Users, Missions, Vulnerabilities) is stored in React State (`useState` in `App.tsx`). This means data resets when the page is reloaded.
+2.  **Authentication**: Login is handled locally by checking against a mock user list in `constants.ts`.
+3.  **Terminal/Scanning**: The "Command Center" simulates network scans (Nmap, Nikto) using `setTimeout` to mimic server processing time and streaming logs. No actual packets are sent.
+4.  **AI Reporting**: The application connects directly to Google Gemini API from the frontend to generate reports.
+
+NEXT STEPS: MIGRATION TO PYTHON (FastAPI) BACKEND
+-------------------------------------------------
+To turn this into a real pentesting tool, the following steps are required to implement the Python backend you requested.
+
+PHASE 1: SERVER SETUP (PYTHON/FASTAPI)
+1.  **Framework**: Initialize a FastAPI project (`pip install fastapi uvicorn`).
+2.  **Database**: Set up PostgreSQL to store Users, Missions, and Vulnerability data persistently.
+3.  **ORM**: Use SQLAlchemy or Tortoise-ORM to map Python models to the database.
+4.  **Authentication**: Implement JWT (JSON Web Token) authentication endpoints (`/login`, `/refresh`).
+    *   *Security Note*: Passwords must be hashed using `bcrypt` or `argon2`.
+
+PHASE 2: SCANNING ENGINE
+1.  **Async Tasks**: Real network scans take time. You cannot run `nmap` directly in a web request or the browser will timeout.
+2.  **Celery & Redis**: Use Celery (task queue) with Redis (broker) to run scans in the background.
+    *   *Frontend Request*: User clicks "Scan" -> Frontend sends POST request to API -> API triggers Celery task -> API returns Task ID.
+    *   *Polling/WebSockets*: Frontend polls status of Task ID or uses WebSockets for real-time log streaming.
+3.  **Tool Integration**:
+    *   Write Python wrappers for Nmap (`python-nmap`), Nikto, and OpenVAS.
+    *   Ensure the user running the script has permissions (root/sudo) for raw socket manipulation if required.
+
+PHASE 3: DEPLOYMENT ARCHITECTURE
+1.  **Reverse Proxy**: Use Nginx to serve the React frontend (static files) and proxy API requests (`/api`) to the FastAPI server (`localhost:8000`).
+2.  **HTTPS**: Nginx handles SSL termination (Let's Encrypt).
+3.  **Docker**: Containerize the solution.
+    *   Container 1: Frontend (Nginx + React Build)
+    *   Container 2: Backend (FastAPI)
+    *   Container 3: Worker (Celery)
+    *   Container 4: Database (Postgres)
+    *   Container 5: Broker (Redis)
+
+FILE STRUCTURE FOR FUTURE BACKEND
+---------------------------------
+/project-root
+  /frontend (Current React App)
+  /backend
+    /app
+      main.py
+      models.py
+      schemas.py
+      /routers
+      /services (Scanning logic)
+    requirements.txt
+  docker-compose.yml
+  deploy.sh
+

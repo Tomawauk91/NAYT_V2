@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+celery
+redis
+sqlalchemy
+psycopg2-binary
+passlib[bcrypt]
+python-jose[cryptography]
+python-multipart
+python-nmap
+requests
+httpx
+pydantic
+bcrypt==4.0.1
+google-generativeai
