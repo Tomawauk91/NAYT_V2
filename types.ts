@@ -26,9 +26,14 @@ export interface Vulnerability {
   id: string;
   title: string;
   description: string;
-  criticality: Criticality;
-  status: Status;
-  dateFound: string;
+  evidence?: string;
+  criticality?: Criticality;
+  severity?: string;
+  status?: Status;
+  dateFound?: string;
+  created_at?: string;
+  updated_at?: string;
+  executed_by?: string;
 }
 
 export interface Mission {

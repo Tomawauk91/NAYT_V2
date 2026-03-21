@@ -21,7 +21,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ missions, lang }) => {
 
   // Aggregate data for charts
   const severityCounts = missions.flatMap(m => m.vulnerabilities).reduce((acc, v) => {
-    acc[v.criticality] = (acc[v.criticality] || 0) + 1;
+    const sev = v.severity || v.criticality || Criticality.INFO;
+    acc[sev] = (acc[sev] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
 
@@ -30,7 +31,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ missions, lang }) => {
   const statusData = missions.map(m => ({
     name: m.name.split(' ').slice(0, 2).join(' '),
     vulns: m.vulnerabilities.length,
-    critical: m.vulnerabilities.filter(v => v.criticality === Criticality.CRITICAL).length
+    critical: m.vulnerabilities.filter(v => (v.severity || v.criticality) === Criticality.CRITICAL).length
   }));
 
   // Recharts tooltip custom content style
@@ -57,7 +58,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ missions, lang }) => {
         <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-lg transition-colors">
           <h3 className="text-slate-500 dark:text-slate-400 text-sm font-medium uppercase tracking-wider">{t.criticalRisks}</h3>
           <p className="text-3xl font-bold text-red-500 mt-2">
-            {missions.flatMap(m => m.vulnerabilities).filter(v => v.criticality === Criticality.CRITICAL).length}
+            {missions.flatMap(m => m.vulnerabilities).filter(v => (v.severity || v.criticality) === Criticality.CRITICAL).length}
           </p>
         </div>
       </div>

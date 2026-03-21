@@ -10,7 +10,7 @@ def check_tool_availability(tool_name: str) -> bool:
     return shutil.which(tool_name) is not None
 
 @celery_app.task(bind=True)
-def run_scan_task(self, tool: str, target: str, options: str = ""):
+def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: int = None, executed_by: str = "Automated Scan"):
     """
     Executes a security tool against a target.
     
@@ -72,6 +72,109 @@ def run_scan_task(self, tool: str, target: str, options: str = ""):
             
         process.wait()
         
+
+        # --- PARSE & SAVE FINDINGS ---
+        if mission_id is not None:
+            try:
+                from .database import SessionLocal
+                from .models import Vulnerability
+                import re
+                
+                db = SessionLocal()
+                vulns_added = 0
+                
+                if tool == "nmap":
+                    # Parse Nmap Output
+                    for line in accumulated_output.split('\n'):
+                        match = re.search(r'^(\d+)/(tcp|udp)\s+open\s+([^\s]+)(?:\s+(.*))?', line)
+                        if match:
+                            port = match.group(1)
+                            protocol = match.group(2)
+                            service = match.group(3)
+                            version = match.group(4) or ""
+                            title = f"Open Port: {port}/{protocol} ({service})"
+                            desc = f"An open port was found running {service}.\nVersion info: {version}"
+                            
+                            # Check if exists
+                            exists = db.query(Vulnerability).filter_by(mission_id=mission_id, title=title).first()
+                            if not exists:
+                                v = Vulnerability(title=title, severity="Low", description=desc, evidence=accumulated_output, mission_id=mission_id, executed_by=executed_by)
+                                db.add(v)
+                                vulns_added += 1
+                            else:
+                                exists.description = desc
+                                exists.evidence = accumulated_output
+                                exists.executed_by = executed_by
+                                vulns_added += 1
+                                
+                elif tool == "nikto":
+                    # Parse Nikto Output
+                    for line in accumulated_output.split('\n'):
+                        if "+ OSVDB" in line or (line.startswith("+") and "OSVDB" in line):
+                            parts = line.split(":", 1)
+                            title = parts[0].strip() if len(parts) > 0 else "Nikto Finding"
+                            desc = parts[1].strip() if len(parts) > 1 else line
+                            
+                            exists = db.query(Vulnerability).filter_by(mission_id=mission_id, title=title).first()
+                            if not exists:
+                                v = Vulnerability(title=title, severity="Medium", description=desc, evidence=accumulated_output, mission_id=mission_id, executed_by=executed_by)
+                                db.add(v)
+                                vulns_added += 1
+                            else:
+                                exists.description = desc
+                                exists.evidence = accumulated_output
+                                exists.executed_by = executed_by
+                                vulns_added += 1
+                                
+                
+                elif tool == "nuclei":
+                    # Parse Nuclei Output
+                    # Example: [CVE-2020-14883] [http] [critical] http://example.com
+                    for line in accumulated_output.split('\n'):
+                        match = re.search(r'^\[(.*?)\]\s+\[(.*?)\]\s+\[(.*?)\]\s+(.*)', line)
+                        if match:
+                            vuln_id = match.group(1)
+                            proto = match.group(2)
+                            severity = match.group(3).capitalize()
+                            target_url = match.group(4)
+                            title = f"Nuclei Finding: {vuln_id}"
+                            desc = f"Nuclei found a vulnerability ({vuln_id}) via {proto} at {target_url}"
+                            
+                            exists = db.query(Vulnerability).filter_by(mission_id=mission_id, title=title).first()
+                            if not exists:
+                                v = Vulnerability(title=title, severity=severity, description=desc, evidence=accumulated_output, mission_id=mission_id, executed_by=executed_by)
+                                db.add(v)
+                                vulns_added += 1
+                            else:
+                                exists.description = desc
+                                exists.evidence = accumulated_output
+                                exists.executed_by = executed_by
+                                vulns_added += 1
+                                
+                else:
+                    # Generic fallback for any other tool (dirb, sqlmap, gobuster, etc.)
+                    title = f"{tool.capitalize()} Execution Log"
+                    desc = f"Raw execution output for {tool.capitalize()}."
+                    
+                    exists = db.query(Vulnerability).filter_by(mission_id=mission_id, title=title).first()
+                    if not exists:
+                        v = Vulnerability(title=title, severity="Info", description=desc, evidence=accumulated_output, mission_id=mission_id, executed_by=executed_by)
+                        db.add(v)
+                        vulns_added += 1
+                    else:
+                        exists.description = desc
+                        exists.evidence = accumulated_output
+                        exists.executed_by = executed_by
+                        vulns_added += 1
+
+                if vulns_added > 0:
+                    db.commit()
+            except Exception as e:
+                logger.error(f"Error parsing vulnerabilities: {e}")
+            finally:
+                db.close()
+        # -----------------------------
+
         if process.returncode != 0 and tool != "nikto": # Nikto often returns non-zero even on success/warnings
             return {
                 "status": "failed", 
@@ -91,7 +194,7 @@ def run_scan_task(self, tool: str, target: str, options: str = ""):
         return {"status": "error", "output": str(e)}
 
 @celery_app.task(bind=True)
-def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port: str = ""):
+def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port: str = "", mission_id: int = None):
     """
     Runs a defined sequence of tools against a target automatically.
     Adapts based on Nmap output.
@@ -320,6 +423,29 @@ def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port
                 
             overall_output += "\n" + "="*30 + "\n\n"
             
+    if mission_id is not None:
+        try:
+            from .database import SessionLocal
+            from .models import Vulnerability
+            
+            db = SessionLocal()
+            title = "Autonomous Scan Summary"
+            desc = f"Complete execution log of the autonomous scan sequence against {target}."
+            
+            exists = db.query(Vulnerability).filter_by(mission_id=mission_id, title=title).first()
+            if not exists:
+                v = Vulnerability(title=title, severity="Info", description=desc, evidence=overall_output, mission_id=mission_id, executed_by="Autopilot")
+                db.add(v)
+            else:
+                exists.description = desc
+                exists.evidence = overall_output
+                exists.executed_by = "Autopilot"
+            
+            db.commit()
+            db.close()
+        except Exception as e:
+            logger.error(f"Error saving autonomous scan log: {e}")
+
     return {
         "status": "completed",
         "command": "auto_scan_adaptive",
@@ -327,7 +453,7 @@ def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port
     }
 
 @celery_app.task(bind=True)
-def run_custom_command_task(self, command: str):
+def run_custom_command_task(self, command: str, mission_id: int = None):
     logger.info(f"Executing custom command: {command}")
     self.update_state(state='PROGRESS', meta={'cmd': command, 'output': 'Starting custom command...'})
     try:

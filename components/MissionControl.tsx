@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Mission, Vulnerability, Criticality, Status, Language } from '../types';
 import { generateExecutiveSummary } from '../services/geminiService';
 import { toolsService } from '../services/apiService';
-import { Play, Edit2, FileText, CheckCircle, AlertTriangle, Terminal as TerminalIcon, Eye, Search, Command, PlayCircle, Zap } from 'lucide-react';
+import { Play, Edit2, FileText, CheckCircle, AlertTriangle, Terminal as TerminalIcon, Eye, Search, Command, PlayCircle, Zap , X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { translations } from '../translations';
 
@@ -20,6 +20,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
   const [editingToolIdx, setEditingToolIdx] = useState<number | null>(null);
   const [editingToolCmd, setEditingToolCmd] = useState('');
   const [activeTab, setActiveTab] = useState<'overview' | 'actions' | 'findings' | 'report' | 'auto'>('overview');
+  const [selectedVuln, setSelectedVuln] = useState<Vulnerability | null>(null);
   const [report, setReport] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
   
@@ -128,7 +129,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
         // Remove tool name from options (everything after first space)
         const options = command.trim().substring(tool.length).trim();
 
-        const { task_id } = await toolsService.runScan(tool, mission.target, options);
+        const { task_id } = await toolsService.runScan(tool, mission.target, options, mission.id);
         setCurrentTaskId(task_id);
         setTerminalOutput(prev => [...prev, `[+] Task submitted with ID: ${task_id}`]);
 
@@ -227,7 +228,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
     customLastOutputRef.current = "";
 
     try {
-        const { task_id } = await toolsService.runCustomScan(command);
+        const { task_id } = await toolsService.runCustomScan(command, mission.id);
         setCurrentCustomTaskId(task_id);
         setCustomTerminalOutput(prev => [...prev, `[+] Task submitted with ID: ${task_id}`]);
 
@@ -298,7 +299,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
     lastOutputRef.current = "";
 
     try {
-        const { task_id } = await toolsService.runAutoScan(mission.target, selectedAutoTools, targetPort);
+        const { task_id } = await toolsService.runAutoScan(mission.target, selectedAutoTools, targetPort, mission.id);
         setCurrentTaskId(task_id);
         setTerminalOutput(prev => [...prev, `[+] Auto-scan task submitted with ID: ${task_id}`]);
 
@@ -384,7 +385,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
     }
   };
 
-  const getSeverityColor = (severity: Criticality) => {
+  const getSeverityColor = (severity: any) => {
     switch (severity) {
       case Criticality.CRITICAL: return 'bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-500 border-red-200 dark:border-red-500/20';
       case Criticality.HIGH: return 'bg-orange-50 dark:bg-orange-500/10 text-orange-600 dark:text-orange-500 border-orange-200 dark:border-orange-500/20';
@@ -840,7 +841,8 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                   <th className="px-6 py-4">Title</th>
                   <th className="px-6 py-4">Severity</th>
                   <th className="px-6 py-4">{t.status}</th>
-                  <th className="px-6 py-4">{t.date}</th>
+                  <th className="px-6 py-4">Date & Time</th>
+                  <th className="px-6 py-4">Executed By</th>
                   <th className="px-6 py-4">{t.actions}</th>
                 </tr>
               </thead>
@@ -849,14 +851,34 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                   <tr key={v.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                     <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">{v.title}</td>
                     <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded text-xs border ${getSeverityColor(v.criticality)}`}>
-                        {v.criticality}
+                      <span className={`px-2 py-1 rounded text-xs border ${getSeverityColor(v.severity || v.criticality)}`}>
+                        {v.severity || v.criticality}
                       </span>
                     </td>
-                    <td className="px-6 py-4">{v.status}</td>
-                    <td className="px-6 py-4">{v.dateFound}</td>
+                    <td className="px-6 py-4">{v.status || "Open"}</td>
+                    <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400 font-mono">
+                        {(() => {
+                           const targetDate = v.updated_at || v.created_at;
+                           if (targetDate) {
+                               return new Date(targetDate).toLocaleString('fr-FR', {
+                                  day: '2-digit', month: '2-digit', year: 'numeric',
+                                  hour: '2-digit', minute: '2-digit', second: '2-digit'
+                               });
+                           }
+                           return v.dateFound || new Date().toLocaleString('fr-FR', {
+                               day: '2-digit', month: '2-digit', year: 'numeric',
+                               hour: '2-digit', minute: '2-digit', second: '2-digit'
+                           });
+                        })()}
+                    </td>
+                    <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400">
+                        {v.executed_by || "Automated Scan"}
+                    </td>
                     <td className="px-6 py-4">
-                        <button className="text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 flex items-center gap-1">
+                        <button 
+                            onClick={() => setSelectedVuln(v)}
+                            className="text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 flex items-center gap-1"
+                        >
                             <Eye size={14} /> Details
                         </button>
                     </td>
@@ -918,6 +940,38 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
           </div>
         )}
       </div>
+
+      {/* Vulnerability Details Modal */}
+      {selectedVuln && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 sm:p-8 animate-fadeIn">
+            <div className="relative bg-[#0f172a] rounded-xl w-full max-w-5xl h-full max-h-[85vh] flex flex-col shadow-2xl border border-slate-700 overflow-hidden">
+                {/* Header */}
+                <div className="flex-shrink-0 p-4 border-b border-slate-800 flex justify-between items-center bg-[#1e293b] z-10 shadow-sm">
+                    <div className="flex-1 pr-4">
+                        <h3 className="text-lg font-bold text-white flex items-center gap-3">
+                            <TerminalIcon size={18} className="text-emerald-500" />
+                            {selectedVuln.title}
+                            <span className={`px-2 py-0.5 rounded text-[10px] uppercase tracking-wider font-bold border ${getSeverityColor(selectedVuln.severity || selectedVuln.criticality)}`}>
+                                {selectedVuln.severity || selectedVuln.criticality}
+                            </span>
+                        </h3>
+                    </div>
+                    <button 
+                        onClick={() => setSelectedVuln(null)} 
+                        className="text-slate-400 hover:text-white p-2 hover:bg-slate-800 rounded-lg transition-colors flex-shrink-0"
+                    >
+                        <X size={20} />
+                    </button>
+                </div>
+                
+                {/* Body - Pure Terminal Look */}
+                <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar bg-[#0a0f1c] text-slate-200 font-mono text-sm leading-relaxed whitespace-pre-wrap break-all border-t border-b border-slate-800/50 shadow-inner">
+                    {selectedVuln.evidence ? selectedVuln.evidence : selectedVuln.description}
+                </div>
+            </div>
+        </div>
+      )}
+
     </div>
   );
 };

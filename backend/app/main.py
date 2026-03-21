@@ -136,6 +136,31 @@ def delete_mission(mission_id: int, db: Session = Depends(get_db), current_user:
     db.commit()
     return {"status": "success"}
 
+
+@app.put("/vulnerabilities/{vuln_id}", response_model=schemas.Vulnerability)
+def update_vulnerability(vuln_id: int, vuln_update: schemas.VulnerabilityUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    vuln = db.query(models.Vulnerability).filter(models.Vulnerability.id == vuln_id).first()
+    if not vuln:
+        raise HTTPException(status_code=404, detail="Vulnerability not found")
+    
+    update_data = vuln_update.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(vuln, key, value)
+        
+    db.commit()
+    db.refresh(vuln)
+    return vuln
+
+@app.delete("/vulnerabilities/{vuln_id}")
+def delete_vulnerability(vuln_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    vuln = db.query(models.Vulnerability).filter(models.Vulnerability.id == vuln_id).first()
+    if not vuln:
+        raise HTTPException(status_code=404, detail="Vulnerability not found")
+    
+    db.delete(vuln)
+    db.commit()
+    return {"status": "success"}
+
 # --- Scan Routes ---
 @app.post("/scan")
 def trigger_scan(scan: schemas.ScanRequest, current_user: models.User = Depends(auth.get_current_user)):
@@ -143,7 +168,7 @@ def trigger_scan(scan: schemas.ScanRequest, current_user: models.User = Depends(
     Trigger a security scan using one of the available tools.
     """
     # Start the Celery task
-    task = tasks.run_scan_task.delay(scan.tool, scan.target, scan.options)
+    task = tasks.run_scan_task.delay(scan.tool, scan.target, scan.options, scan.mission_id, current_user.username)
     return {"task_id": task.id, "status": "submitted"}
 
 @app.get("/scan/{task_id}")
@@ -187,13 +212,13 @@ def list_tools(current_user: models.User = Depends(auth.get_current_user)):
 
 @app.post("/scan/auto")
 def trigger_auto_scan(scan: schemas.AutoScanRequest, current_user: models.User = Depends(auth.get_current_user)):
-    task = tasks.run_auto_scan_task.delay(scan.target, scan.tools, scan.port)
+    task = tasks.run_auto_scan_task.delay(scan.target, scan.tools, scan.port, scan.mission_id)
     return {"task_id": task.id, "status": "submitted"}
 
 
 @app.post("/scan/custom")
 def trigger_custom_scan(scan: schemas.CustomCommandRequest, current_user: models.User = Depends(auth.get_current_user)):
-    task = tasks.run_custom_command_task.delay(scan.command)
+    task = tasks.run_custom_command_task.delay(scan.command, scan.mission_id)
     return {"task_id": task.id, "status": "submitted"}
 
 @app.post("/scan/{task_id}/stop")

@@ -128,10 +128,30 @@ export default function App() {
       try {
           const data = await toolsService.getMissions();
           setMissions(data);
+          
+          setSelectedMission(currentSelected => {
+              if (currentSelected) {
+                  const updated = data.find((m: Mission) => m.id === currentSelected.id);
+                  return updated || currentSelected;
+              }
+              return currentSelected;
+          });
       } catch (e) {
           console.error("Failed to load missions", e);
       }
   };
+
+  useEffect(() => {
+      let interval: ReturnType<typeof setInterval>;
+      if (user) {
+          interval = setInterval(() => {
+              fetchMissions();
+          }, 5000);
+      }
+      return () => {
+          if (interval) clearInterval(interval);
+      };
+  }, [user]);
 
   // Apply theme to body body class for global styles if needed, but wrapping div works best with tailwind 'class' mode
   useEffect(() => {
@@ -396,6 +416,7 @@ export default function App() {
                     key={item.id}
                     onClick={() => {
                         setActiveView(item.id);
+                        fetchMissions();
                         setSelectedMission(null);
                         setSidebarOpen(false);
                     }}
@@ -523,7 +544,7 @@ export default function App() {
             {selectedMission ? (
             <MissionControl 
                 mission={selectedMission} 
-                onBack={() => setSelectedMission(null)} 
+                onBack={() => { fetchMissions(); setSelectedMission(null); }} 
                 notify={addNotification}
                 lang={lang}
                 userRole={user?.role || "Viewer"}
@@ -589,7 +610,7 @@ export default function App() {
                 {activeView === 'recon' && <ReconView missions={missions} lang={lang}
                 userRole={user?.role || "Viewer"} />}
                 {activeView === 'vulns' && <VulnerabilitiesView missions={missions} lang={lang}
-                userRole={user?.role || "Viewer"} />}
+                    userRole={user?.role || "Viewer"} onRefresh={fetchMissions} />}
                 {activeView === 'reports' && <ReportsView missions={missions} lang={lang}
                 userRole={user?.role || "Viewer"} />}
 

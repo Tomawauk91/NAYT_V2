@@ -163,7 +163,7 @@ export const toolsService = {
   },
 
   
-  async runCustomScan(command: string) {
+  async runCustomScan(command: string, mission_id: number = 1) {
     const token = localStorage.getItem('token');
     const response = await fetch(`${API_BASE_URL}/scan/custom`, {
       method: 'POST',
@@ -171,7 +171,7 @@ export const toolsService = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ command }),
+      body: JSON.stringify({ command, mission_id }),
     });
 
     if (!response.ok) {
@@ -182,7 +182,7 @@ export const toolsService = {
     return await response.json(); // Returns { task_id, status }
   },
 
-  async runAutoScan(target: string, tools: string[], port: string = "") {
+  async runAutoScan(target: string, tools: string[], port: string = "", mission_id: number = 1) {
     const token = localStorage.getItem('token');
     const response = await fetch(`${API_BASE_URL}/scan/auto`, {
       method: 'POST',
@@ -190,7 +190,7 @@ export const toolsService = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ target, tools, port }),
+      body: JSON.stringify({ target, tools, port, mission_id }),
     });
 
     if (!response.ok) {
@@ -201,7 +201,7 @@ export const toolsService = {
   },
 
   // Tools
-  async runScan(tool: string, target: string, options: string = "") {
+  async runScan(tool: string, target: string, options: string = "", mission_id: number = 1) {
     const token = localStorage.getItem('token');
     const response = await fetch(`${API_BASE_URL}/scan`, {
       method: 'POST',
@@ -209,7 +209,7 @@ export const toolsService = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ tool, target, options }),
+      body: JSON.stringify({ tool, target, options, mission_id }),
     });
 
     if (!response.ok) {
@@ -243,6 +243,30 @@ export const toolsService = {
         throw new Error('Failed to check scan status');
     }
     return await response.json();
+  },
+  async updateVulnerability(vulnId: number | string, data: any) {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_BASE_URL}/vulnerabilities/${vulnId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to update vulnerability');
+    return await response.json();
+  },
+
+  async deleteVulnerability(vulnId: number | string) {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_BASE_URL}/vulnerabilities/${vulnId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+    });
+    if (!response.ok) throw new Error('Failed to delete vulnerability');
+    return await response.json();
   }
 };
-

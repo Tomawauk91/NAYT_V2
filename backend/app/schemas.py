@@ -6,6 +6,11 @@ class VulnerabilityBase(BaseModel):
     title: str
     severity: str
     description: str
+    evidence: Optional[str] = None
+    status: Optional[str] = "Open"
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    executed_by: Optional[str] = "Automated Scan"
 
 class VulnerabilityCreate(VulnerabilityBase):
     pass
@@ -55,13 +60,24 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 class ScanRequest(BaseModel):
+    mission_id: int
     tool: str
     target: str
     options: Optional[str] = ""
 
 class AutoScanRequest(BaseModel):
+    mission_id: int
     target: str
     tools: List[str]
     port: Optional[str] = ""
+
 class CustomCommandRequest(BaseModel):
+    mission_id: int
     command: str
+
+
+class VulnerabilityUpdate(BaseModel):
+    title: Optional[str] = None
+    severity: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None

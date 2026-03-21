@@ -37,6 +37,11 @@ class Vulnerability(Base):
     title = Column(String)
     severity = Column(String) # Critical, High, Medium, Low, Info
     description = Column(Text)
+    evidence = Column(Text)
+    status = Column(String, default="Open")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    executed_by = Column(String, default="Automated Scan")
     
     mission = relationship("Mission", back_populates="vulnerabilities")
 

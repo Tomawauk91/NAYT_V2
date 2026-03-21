@@ -32,3 +32,21 @@ Conclusion
 Actuellement, le projet cible un bon 16/20 pour un M1. L'aspect technique, asynchrone et modulaire est bluffant. Si vous ajoutez la génération de rapport PDF et un système de login sécurisé (avec historique en BDD), vous couvrirez la quasi-totalité du cahier des charges et viserez l'excellence.
 
 Voulez-vous que l'on s'attaque à la mise en place de la Base de données / Authentification, ou préférez-vous que l'on développe le Générateur de rapport PDF (Jinja2) ?
+
+
+
+
+2. Axe "Reporting & Clients" (Idéal pour la partie managériale)
+Délivrer une prestation de pentest finit toujours par un rapport :
+
+Export PDF/Word professionnel : Utiliser les capacités de l'IA (Gemini) non plus seulement pour afficher un Markdown à l'écran, mais pour générer un vrai livrable PDF propre (avec table des matières, graphiques, scores CVSS et Executive Summary) téléchargeable en un clic.
+Gestion Multicliente : Créer une entité Client au-dessus de Mission. Cela permettrait d'affecter plusieurs cibles/missions à une même entreprise, d'ajouter les contacts du client, etc.
+3. Axe "Tracabilité & Légalité" (Crucial pour la sécurité)
+Avoir plusieurs administrateurs et pentesters sur une plateforme qui attaque des serveurs pose des questions de traçabilité et de sécurité :
+
+Audit Trails (Journaux d'audit) : Sauvegarder impérativement dans une table dédiée QUI a lancé QUOI et QUAND. Savoir que c'est l'utilisateur Admin A qui a lancé tel scan un lundi à 14h00 pour se protéger si un client se plaint que l'outil a fait tomber son serveur.
+Architecture d'Agents (Mode Expert) : Au lieu que ce soit votre propre serveur backend/docker qui attaque directement les cibles (au risque de voir son IP bannie), vous pourriez rajouter le fait d'installer des "Agents (Workers Celery)" sur des VPS jetables externes. Le manager leur donnerait les ordres à distance.
+4. Axe "Intégration d'outils avancés"
+Lier le backend à via des APIs aux mastodontes du secteur : Metasploit RPC, Burp Suite Enterprise, ou Nessus (GVM).
+Ajouter des Webhooks (Alertes Discord/Teams/Slack) pour être notifié sur votre téléphone si l'outil ou l'IA automatique détecte soudainement une faille critique (CVSS > 9.0) pendant que vous ne regardez pas le dashboard.
+Laquelle de ces directions (ou quelle autre idée !) aimeriez-vous que nous commencions à attaquer en premier ?
