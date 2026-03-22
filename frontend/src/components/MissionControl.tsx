@@ -145,7 +145,11 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                     if (allCustomLines.length > 0) allCustomLines.push("---------------------------------------------------");
                     allCustomLines.push(`${timeStr}$ ${task.command || 'Unknown command'}`);
                     allCustomLines.push(`[ID: ${task.task_id}] Status: ${task.status}`);
-                    if (rawOutput) allCustomLines.push(...outLines);
+                    if (rawOutput) {
+                        allCustomLines.push(...outLines);
+                    } else if (task.status === "REVOKED" || task.status === "FAILURE") {
+                        allCustomLines.push("[!] No output recorded or task terminated early.");
+                    }
                     allCustomLines.push("");
                     
                     if (isActive) {
@@ -161,7 +165,11 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                         allMainLines.push(`${timeStr}> Running manual scan with tools: ${task.tool} on ${mission.target}`);
                     }
                     allMainLines.push(`[ID: ${task.task_id}] Status: ${task.status}`);
-                    if (rawOutput) allMainLines.push(...outLines);
+                    if (rawOutput) {
+                        allMainLines.push(...outLines);
+                    } else if (task.status === "REVOKED" || task.status === "FAILURE") {
+                        allMainLines.push("[!] No output recorded or task terminated early.");
+                    }
                     allMainLines.push("");
                     
                     if (isActive) {
@@ -211,9 +219,9 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
         try {
             await toolsService.clearTasks(mission.id, "main");
             setTerminalOutput([]);
-            notify("success", "Historique nettoyé");
+            notify("success", t.historyCleared);
         } catch (e) {
-            notify("error", "Erreur lors du nettoyage");
+            notify("error", t.clearError);
         }
     };
 
@@ -332,9 +340,9 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
         try {
             await toolsService.clearTasks(mission.id, "custom");
             setCustomTerminalOutput([]);
-            notify("success", "Historique nettoyé");
+            notify("success", t.historyCleared);
         } catch (e) {
-            notify("error", "Erreur lors du nettoyage");
+            notify("error", t.clearError);
         }
     };
 
@@ -559,7 +567,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
             </span>
             {mission.client && (
                <span className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-3 py-1 rounded-full text-xs border border-slate-200 dark:border-slate-600">
-                  Client: {mission.client.name}
+                  {t.client}: {mission.client.name}
                </span>
             )}
           </div>
@@ -730,7 +738,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                                 <div className="flex gap-2 items-center">
                                     {editingToolIdx === idx ? (
                                         <>
-                                            <button onClick={(e) => { e.stopPropagation(); setEditingToolIdx(null); }} className="text-slate-500 hover:text-red-500 px-2 py-1 text-xs">Annuler</button>
+                                            <button onClick={(e) => { e.stopPropagation(); setEditingToolIdx(null); }} className="text-slate-500 hover:text-red-500 px-2 py-1 text-xs">{t.cancel}</button>
                                             <button 
                                                 onClick={(e) => { 
                                                     e.stopPropagation();
@@ -747,7 +755,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                                         <>
                                             <button 
                                                 onClick={(e) => { e.stopPropagation(); setEditingToolCmd(tool.cmd); setEditingToolIdx(idx); }}
-                                                title="Modifier la commande"
+                                                title={t.editCmd}
                                                 className="text-slate-400 hover:text-blue-500 p-1.5 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
                                             >
                                                 <Edit2 size={16} />
@@ -794,7 +802,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                         )}
                     </div>
                     <div className="flex-1 p-4 overflow-y-auto font-mono text-sm" ref={scrollRef}>
-                        <div className="text-slate-500 mb-2"># Terminal Session Initialized.</div>
+                        <div className="text-slate-500 mb-2">{t.sessionInit}</div>
                         {terminalOutput.map((line, idx) => (
                             <div key={idx} className="mb-1 animate-fadeIn">
                                 {line.startsWith('root') ? (
@@ -904,7 +912,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                         </div>
                     </div>
                     <div className="flex-1 p-4 overflow-y-auto font-mono text-sm" ref={scrollRef}>
-                        <div className="text-slate-500 mb-2"># Auto-Pilot Sequence Initiated...</div>
+                        <div className="text-slate-500 mb-2">{t.autoPilotSeq}</div>
                         {terminalOutput.map((line, idx) => (
                              <div key={idx} className="mb-1 animate-fadeIn break-words whitespace-pre-wrap">
                                 {line.startsWith('root') ? (
@@ -932,9 +940,9 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
         {activeTab === 'custom' && (
           <div className="grid grid-cols-1 gap-6 animate-fadeIn h-[600px] flex flex-col">
             <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0">
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Terminal Libre (Root)</h3>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">{t.freeTerminal}</h3>
               <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                Exécutez n'importe quelle commande Linux. Ce terminal est indépendant du Command Center.
+                {t.freeTerminalDesc}
               </p>
               <div className="flex gap-2">
                 <input
@@ -958,7 +966,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                   disabled={isCustomCommandRunning || !customCLIInput.trim()}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
-                  <Play size={20} /> Exécuter
+                  <Play size={20} /> {t.execute}
                 </button>
               </div>
             </div>
@@ -989,7 +997,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                     )}
                 </div>
                 <div className="flex-1 p-4 overflow-y-auto font-mono text-sm" ref={customScrollRef}>
-                    <div className="text-slate-500 mb-2"># Terminal Root Indépendant.</div>
+                    <div className="text-slate-500 mb-2">{t.independentRootTerminal}</div>
                     {customTerminalOutput.map((line, idx) => (
                         <div key={idx} className="mb-1 animate-fadeIn break-words whitespace-pre-wrap">
                             {line.startsWith('root') ? (

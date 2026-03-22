@@ -1,5 +1,5 @@
 {
-  "name": "PentestManager Pro",
+  "name": "NAYT - Toolbox",
   "description": "A comprehensive Vulnerability Management and Reporting Dashboard. This application allows security teams to manage pentest engagements, log findings, visualize risk data, and generate AI-powered executive summaries. It focuses on the management, reporting, and defensive analysis phases of a penetration test.",
   "requestFramePermissions": []
 }

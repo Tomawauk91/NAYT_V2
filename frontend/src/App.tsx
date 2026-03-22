@@ -394,7 +394,7 @@ export default function App() {
                 <Shield size={48} className="text-blue-600 dark:text-blue-500" />
             </div>
           </div>
-          <h1 className="text-3xl font-bold text-center text-slate-900 dark:text-white mb-2">PentestManager Pro</h1>
+          <h1 className="text-3xl font-bold text-center text-slate-900 dark:text-white mb-2">NAYT - Toolbox</h1>
           <p className="text-center text-slate-500 dark:text-slate-400 mb-8">{t.secureGateway}</p>
           
           <form onSubmit={handleLogin} className="space-y-4">
@@ -501,7 +501,7 @@ export default function App() {
         <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-3">
                 <Shield className="text-blue-600 dark:text-blue-500" size={28} />
-                <h1 className="font-bold text-slate-900 dark:text-white tracking-tight">PentestManager</h1>
+                <h1 className="font-bold text-slate-900 dark:text-white tracking-tight">NAYT</h1>
             </div>
             <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors">
                 <X size={24} />

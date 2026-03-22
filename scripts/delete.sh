@@ -1,9 +1,9 @@
 #!/bin/bash
-echo "Deleting PentestManager Pro from the machine..."
+echo "Deleting NAYT - Toolbox from the machine..."
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
 
-read -p "Are you sure you want to completely remove PentestManager Pro and all data? (y/n) " -n 1 -r
+read -p "Are you sure you want to completely remove NAYT - Toolbox and all data? (y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]
 then

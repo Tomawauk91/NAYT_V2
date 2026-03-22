@@ -18,7 +18,7 @@ from datetime import timedelta
 # Create tables
 # models.Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="PentestManager Pro API")
+app = FastAPI(title="NAYT - Toolbox API")
 
 app.add_middleware(
     CORSMiddleware,

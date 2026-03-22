@@ -173,7 +173,19 @@ export const translations = {
     fillAllFields: "Please fill in all fields",
     missionCreated: "Mission created. Status: Planning",
     userProfile: "User Profile",
-    changePw: "Change Password"
+    changePw: "Change Password",
+    execute: "Execute",
+    cancel: "Cancel",
+    freeTerminal: "Free Terminal (Root)",
+    freeTerminalDesc: "Run any Linux command. This terminal is independent from the Command Center.",
+    independentRootTerminal: "# Independent Root Terminal.",
+    autoPilotSeq: "# Auto-Pilot Sequence Initiated...",
+    sessionInit: "# Terminal Session Initialized.",
+    clearHistory: "Clear History",
+    historyCleared: "History cleared",
+    clearError: "Error clearing history",
+    editCmd: "Edit command",
+    client: "Client"
   },
   fr: {
     // Navigation & General
@@ -347,6 +359,18 @@ export const translations = {
     fillAllFields: "Veuillez remplir tous les champs",
     missionCreated: "Mission créée. Statut : Planification",
     userProfile: "Profil Utilisateur",
-    changePw: "Changer Mot de Passe"
+    changePw: "Changer Mot de Passe",
+    execute: "Exécuter",
+    cancel: "Annuler",
+    freeTerminal: "Terminal Libre (Root)",
+    freeTerminalDesc: "Exécutez n'importe quelle commande Linux. Ce terminal est indépendant du Centre de Commande.",
+    independentRootTerminal: "# Terminal Root Indépendant.",
+    autoPilotSeq: "# Séquence Auto-Pilot Initiée...",
+    sessionInit: "# Session Terminal Initialisée.",
+    clearHistory: "Nettoyer l'historique",
+    historyCleared: "Historique nettoyé",
+    clearError: "Erreur lors du nettoyage",
+    editCmd: "Modifier la commande",
+    client: "Client"
   }
 };

@@ -1,5 +1,6 @@
 services:
   frontend:
+    container_name: NAYT-frontend
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -12,6 +13,7 @@ services:
       - backend
 
   backend:
+    container_name: NAYT-backend
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -32,6 +34,7 @@ services:
     # The image runs as root by default unless specified otherwise.
 
   worker:
+    container_name: NAYT-worker
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -48,9 +51,11 @@ services:
       - backend
 
   redis:
+    container_name: NAYT-redis
     image: redis:7-alpine
 
   db:
+    container_name: NAYT-db
     image: postgres:15-alpine
     environment:
       - POSTGRES_USER=user

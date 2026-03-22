@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "Starting PentestManager Pro..."
+echo "Starting NAYT - Toolbox..."
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
 
