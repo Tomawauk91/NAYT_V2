@@ -1,13 +1,13 @@
 services:
   frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.frontend
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx-certs:/etc/nginx/certs
+      - ./frontend/nginx-certs:/etc/nginx/certs
     depends_on:
       - backend
 

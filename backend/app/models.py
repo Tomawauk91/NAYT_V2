@@ -20,7 +20,9 @@ class Client(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
+    user_id = Column(Integer, ForeignKey("users.id"))
     missions = relationship("Mission", back_populates="client")
+    owner = relationship("User")
 
 class User(Base):
     __tablename__ = "users"
@@ -37,11 +39,13 @@ class Mission(Base):
     status = Column(String, default="Pending")
     progress = Column(Integer, default=0)
     client_id = Column(Integer, ForeignKey("clients.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
     client = relationship("Client", back_populates="missions")
+    owner = relationship("User")
     vulnerabilities = relationship("Vulnerability", back_populates="mission", cascade="all, delete-orphan")
 
 class Vulnerability(Base):
@@ -70,3 +74,15 @@ class SystemConfig(Base):
     __tablename__ = "system_config"
     key = Column(String, primary_key=True, index=True)
     value = Column(String)
+
+class ScanTask(Base):
+    __tablename__ = "scan_tasks"
+    id = Column(String, primary_key=True, index=True) # Celery task ID
+    mission_id = Column(Integer, ForeignKey("missions.id"), index=True)
+    task_type = Column(String) # 'manual', 'auto', 'custom'
+    tool = Column(String, nullable=True) 
+    command = Column(String, nullable=True)
+    status = Column(String, default="PROGRESS")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    mission = relationship("Mission")

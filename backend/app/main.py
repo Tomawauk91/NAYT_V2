@@ -122,11 +122,13 @@ def reset_password(user_id: int, reset: PasswordReset, db: Session = Depends(get
 # --- Client Routes ---
 @app.get("/clients", response_model=List[schemas.Client])
 def read_clients(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    return db.query(models.Client).offset(skip).limit(limit).all()
+    return db.query(models.Client).filter(models.Client.user_id == current_user.id).offset(skip).limit(limit).all()
 
 @app.post("/clients", response_model=schemas.Client)
 def create_client(client: schemas.ClientCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    db_client = models.Client(**client.dict())
+    client_data = client.dict()
+    client_data["user_id"] = current_user.id
+    db_client = models.Client(**client_data)
     db.add(db_client)
     db.commit()
     db.refresh(db_client)
@@ -134,7 +136,7 @@ def create_client(client: schemas.ClientCreate, db: Session = Depends(get_db), c
 
 @app.delete("/clients/{client_id}")
 def delete_client(client_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    client = db.query(models.Client).filter(models.Client.id == client_id).first()
+    client = db.query(models.Client).filter(models.Client.id == client_id, models.Client.user_id == current_user.id).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     db.delete(client)
@@ -143,7 +145,7 @@ def delete_client(client_id: int, db: Session = Depends(get_db), current_user: m
 
 @app.put("/clients/{client_id}", response_model=schemas.Client)
 def update_client(client_id: int, client_update: schemas.ClientUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    client = db.query(models.Client).filter(models.Client.id == client_id).first()
+    client = db.query(models.Client).filter(models.Client.id == client_id, models.Client.user_id == current_user.id).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     
@@ -158,12 +160,14 @@ def update_client(client_id: int, client_update: schemas.ClientUpdate, db: Sessi
 # --- Mission Routes ---
 @app.get("/missions", response_model=List[schemas.Mission])
 def read_missions(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    missions = db.query(models.Mission).offset(skip).limit(limit).all()
+    missions = db.query(models.Mission).filter(models.Mission.user_id == current_user.id).offset(skip).limit(limit).all()
     return missions
 
 @app.post("/missions", response_model=schemas.Mission)
 def create_mission(mission: schemas.MissionCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    db_mission = models.Mission(**mission.dict())
+    mission_data = mission.dict()
+    mission_data["user_id"] = current_user.id
+    db_mission = models.Mission(**mission_data)
     db.add(db_mission)
     db.commit()
     db.refresh(db_mission)
@@ -171,7 +175,7 @@ def create_mission(mission: schemas.MissionCreate, db: Session = Depends(get_db)
 
 @app.put("/missions/{mission_id}", response_model=schemas.Mission)
 def update_mission(mission_id: int, mission_update: schemas.MissionUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id, models.Mission.user_id == current_user.id).first()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
     
@@ -186,7 +190,7 @@ def update_mission(mission_id: int, mission_update: schemas.MissionUpdate, db: S
 
 @app.delete("/missions/{mission_id}")
 def delete_mission(mission_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id, models.Mission.user_id == current_user.id).first()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
     db.delete(mission)
@@ -196,7 +200,7 @@ def delete_mission(mission_id: int, db: Session = Depends(get_db), current_user:
 
 @app.put("/vulnerabilities/{vuln_id}", response_model=schemas.Vulnerability)
 def update_vulnerability(vuln_id: int, vuln_update: schemas.VulnerabilityUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    vuln = db.query(models.Vulnerability).filter(models.Vulnerability.id == vuln_id).first()
+    vuln = db.query(models.Vulnerability).join(models.Mission).filter(models.Vulnerability.id == vuln_id, models.Mission.user_id == current_user.id).first()
     if not vuln:
         raise HTTPException(status_code=404, detail="Vulnerability not found")
     
@@ -210,7 +214,7 @@ def update_vulnerability(vuln_id: int, vuln_update: schemas.VulnerabilityUpdate,
 
 @app.delete("/vulnerabilities/{vuln_id}")
 def delete_vulnerability(vuln_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    vuln = db.query(models.Vulnerability).filter(models.Vulnerability.id == vuln_id).first()
+    vuln = db.query(models.Vulnerability).join(models.Mission).filter(models.Vulnerability.id == vuln_id, models.Mission.user_id == current_user.id).first()
     if not vuln:
         raise HTTPException(status_code=404, detail="Vulnerability not found")
     
@@ -220,12 +224,17 @@ def delete_vulnerability(vuln_id: int, db: Session = Depends(get_db), current_us
 
 # --- Scan Routes ---
 @app.post("/scan")
-def trigger_scan(scan: schemas.ScanRequest, current_user: models.User = Depends(auth.get_current_user)):
-    """
-    Trigger a security scan using one of the available tools.
-    """
+def trigger_scan(scan: schemas.ScanRequest, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    mission = db.query(models.Mission).filter(models.Mission.id == scan.mission_id, models.Mission.user_id == current_user.id).first()
+    if not mission:
+        raise HTTPException(status_code=404, detail="Mission not found")
+    
     # Start the Celery task
     task = tasks.run_scan_task.delay(scan.tool, scan.target, scan.options, scan.mission_id, current_user.username)
+    
+    db_task = models.ScanTask(id=task.id, mission_id=scan.mission_id, task_type='manual', tool=scan.tool, command=scan.options)
+    db.add(db_task)
+    db.commit()
     return {"task_id": task.id, "status": "submitted"}
 
 @app.get("/scan/{task_id}")
@@ -268,15 +277,106 @@ def list_tools(current_user: models.User = Depends(auth.get_current_user)):
     return {"tools": ts}
 
 @app.post("/scan/auto")
-def trigger_auto_scan(scan: schemas.AutoScanRequest, current_user: models.User = Depends(auth.get_current_user)):
+def trigger_auto_scan(scan: schemas.AutoScanRequest, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    mission = db.query(models.Mission).filter(models.Mission.id == scan.mission_id, models.Mission.user_id == current_user.id).first()
+    if not mission:
+        raise HTTPException(status_code=404, detail="Mission not found")
     task = tasks.run_auto_scan_task.delay(scan.target, scan.tools, scan.port, scan.mission_id)
+    
+    db_task = models.ScanTask(id=task.id, mission_id=scan.mission_id, task_type='auto', tool="auto", command=str(scan.tools))
+    db.add(db_task)
+    db.commit()
     return {"task_id": task.id, "status": "submitted"}
 
 
 @app.post("/scan/custom")
-def trigger_custom_scan(scan: schemas.CustomCommandRequest, current_user: models.User = Depends(auth.get_current_user)):
+def trigger_custom_scan(scan: schemas.CustomCommandRequest, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    mission = db.query(models.Mission).filter(models.Mission.id == scan.mission_id, models.Mission.user_id == current_user.id).first()
+    if not mission:
+        raise HTTPException(status_code=404, detail="Mission not found")
     task = tasks.run_custom_command_task.delay(scan.command, scan.mission_id)
+    
+    db_task = models.ScanTask(id=task.id, mission_id=scan.mission_id, task_type='custom', tool="custom", command=scan.command)
+    db.add(db_task)
+    db.commit()
     return {"task_id": task.id, "status": "submitted"}
+
+@app.get("/missions/{mission_id}/active-tasks")
+
+
+@app.get("/missions/{mission_id}/tasks")
+def get_mission_tasks(mission_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id, models.Mission.user_id == current_user.id).first()
+    if not mission:
+        raise HTTPException(status_code=404, detail="Mission not found")
+        
+    db_tasks = db.query(models.ScanTask).filter(models.ScanTask.mission_id == mission_id).order_by(models.ScanTask.created_at.asc()).all()
+    
+    tasks_with_results = []
+    for dt in db_tasks:
+        res = AsyncResult(dt.id, app=celery_app)
+        task_data = {
+            "task_id": dt.id,
+            "task_type": dt.task_type,
+            "tool": dt.tool,
+            "command": dt.command,
+            "status": res.status,
+            "created_at": dt.created_at.isoformat() if dt.created_at else None
+        }
+        
+        output = ""
+        if isinstance(res.result, dict):
+            output = res.result.get("output", "")
+        elif res.status == "SUCCESS" and res.result:
+            if isinstance(res.result, dict):
+                output = res.result.get("output", "")
+            else:
+                output = str(res.result)
+                
+        task_data["output"] = output
+        tasks_with_results.append(task_data)
+        
+    return {"tasks": tasks_with_results}
+
+@app.delete("/missions/{mission_id}/tasks")
+def clear_mission_tasks(mission_id: int, task_type: str = None, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id, models.Mission.user_id == current_user.id).first()
+    if not mission:
+        raise HTTPException(status_code=404, detail="Mission not found")
+        
+    query = db.query(models.ScanTask).filter(models.ScanTask.mission_id == mission_id)
+    if task_type:
+        if task_type == 'main':
+             query = query.filter(models.ScanTask.task_type.in_(['manual', 'auto']))
+        else:
+             query = query.filter(models.ScanTask.task_type == task_type)
+        
+    query.delete(synchronize_session=False)
+    db.commit()
+    return {"status": "success", "message": "Tasks cleared"}
+
+def get_mission_active_tasks(mission_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    # Verify mission ownership
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id, models.Mission.user_id == current_user.id).first()
+    if not mission:
+        raise HTTPException(status_code=404, detail="Mission not found")
+        
+    db_tasks = db.query(models.ScanTask).filter(models.ScanTask.mission_id == mission_id).order_by(models.ScanTask.created_at.desc()).all()
+    
+    active_tasks = []
+    for dt in db_tasks:
+        res = AsyncResult(dt.id, app=celery_app)
+        # Verify if it's actually still running
+        if res.status in ["PENDING", "STARTED", "PROGRESS"]:
+            active_tasks.append({
+                "task_id": dt.id,
+                "task_type": dt.task_type,
+                "tool": dt.tool,
+                "command": dt.command,
+                "status": res.status
+            })
+            
+    return {"active_tasks": active_tasks}
 
 @app.post("/scan/{task_id}/stop")
 def stop_scan(task_id: str, current_user: models.User = Depends(auth.get_current_user)):
@@ -329,7 +429,7 @@ def generate_report(mission_id: int, db: Session = Depends(get_db), current_user
          raise HTTPException(status_code=400, detail="Gemini API Key not configured")
          
     # Fetch Mission Data
-    mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id, models.Mission.user_id == current_user.id).first()
     if not mission:
          raise HTTPException(status_code=404, detail="Mission not found")
          
@@ -449,8 +549,8 @@ SEVERITY_WEIGHTS = {
 }
 
 @app.get("/missions/{mission_id}/report", response_class=FileResponse)
-def generate_mission_report(mission_id: int, db: Session = Depends(get_db)):
-    mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
+def generate_mission_report(mission_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id, models.Mission.user_id == current_user.id).first()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
 
@@ -524,3 +624,40 @@ def generate_mission_report(mission_id: int, db: Session = Depends(get_db)):
     
     return FileResponse(path=out_path, filename=out_filename, media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
+
+
+@app.websocket("/ws/scan/{task_id}")
+async def websocket_scan_endpoint(websocket: WebSocket, task_id: str):
+    await websocket.accept()
+    import redis.asyncio as aioredis
+    import json
+    import asyncio
+    
+    redis_client = aioredis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe(f"scan_logs_{task_id}")
+    
+    try:
+        while True:
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+            if message:
+                try:
+                    data_str = message['data'].decode('utf-8')
+                    await websocket.send_text(data_str)
+                    
+                    data = json.loads(data_str)
+                    if data.get("type") == "status":
+                        break
+                except Exception as e:
+                    print(f"WS send error: {e}")
+            else:
+                await asyncio.sleep(0.1)
+    except Exception as e:
+        pass
+    finally:
+        await pubsub.unsubscribe(f"scan_logs_{task_id}")
+        await redis_client.close()
+        try:
+            await websocket.close()
+        except:
+            pass

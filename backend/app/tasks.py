@@ -2,8 +2,13 @@ import subprocess
 import shutil
 from .celery_app import celery_app
 import logging
+import redis
+import json
+import os
 
 logger = logging.getLogger(__name__)
+
+redis_client = redis.Redis.from_url(os.getenv('REDIS_URL', 'redis://redis:6379/0'))
 
 def check_tool_availability(tool_name: str) -> bool:
     """Check if a tool is installed and available in the PATH."""
@@ -62,6 +67,7 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
         # Read line by line
         for line in process.stdout:
             accumulated_output += line
+            redis_client.publish(f"scan_logs_{self.request.id}", json.dumps({"type": "log", "content": line}))
             # Update task state with current accumulated output
             # Note: For very large outputs, this might become heavy for Redis/Celery.
             # Ideally we would only send the "new" chunk, but the frontend replaces the full log.
@@ -147,6 +153,7 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
         # -----------------------------
 
         if process.returncode != 0 and tool != "nikto": # Nikto often returns non-zero even on success/warnings
+            redis_client.publish(f"scan_logs_{self.request.id}", json.dumps({"type": "status", "content": "FAILURE"}))
             return {
                 "status": "failed", 
                 "return_code": process.returncode,
@@ -155,6 +162,7 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
                 "error": "Check output for details"
             }
             
+        redis_client.publish(f"scan_logs_{self.request.id}", json.dumps({"type": "status", "content": "SUCCESS"}))
         return {
             "status": "completed",
             "command": " ".join(cmd),
@@ -191,9 +199,10 @@ def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port
     nmap_output = ""
     discovered_services = [] # List of tuples: (port, service)
     
-    if "nmap" in selected_tool_names or True: # Force nmap to adapt others if needed. Let's say if nmap is in selected tools.
-        if "nmap" not in selected_tool_names:
-            selected_tool_names.insert(0, "nmap") # Ensure it runs first
+    if "nmap" in selected_tool_names:
+        # Move Nmap to the front to ensure it runs first
+        selected_tool_names.remove("nmap")
+        selected_tool_names.insert(0, "nmap")
 
     # Dynamic execution loops
     for tool_key in selected_tool_names:
@@ -219,6 +228,7 @@ def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port
                     disc_proc = subprocess.Popen(fast_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
                     for line in disc_proc.stdout:
                         overall_output += line
+                        redis_client.publish(f"scan_logs_{self.request.id}", json.dumps({"type": "log", "content": line}))
                         self.update_state(state='PROGRESS', meta={'output': overall_output, 'current_step': 'Nmap Discovery Scan'})
                         
                         match_table = re.search(r'^(\d+)/(tcp|udp)\s+open', line)
@@ -350,6 +360,7 @@ def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port
                 for line in process.stdout:
                     overall_output += line
                     tool_output += line
+                    redis_client.publish(f"scan_logs_{self.request.id}", json.dumps({"type": "log", "content": line}))
                     # Update task state frequently
                     self.update_state(state='PROGRESS', meta={
                         'output': overall_output,
@@ -427,6 +438,7 @@ def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port
         except Exception as e:
             logger.error(f"Error saving autonomous scan log: {e}")
 
+    redis_client.publish(f"scan_logs_{self.request.id}", json.dumps({"type": "status", "content": "SUCCESS"}))
     return {
         "status": "completed",
         "command": "auto_scan_adaptive",
@@ -449,6 +461,7 @@ def run_custom_command_task(self, command: str, mission_id: int = None):
         accumulated_output = ""
         for line in process.stdout:
             accumulated_output += line
+            redis_client.publish(f"scan_logs_{self.request.id}", json.dumps({"type": "log", "content": line}))
             self.update_state(state='PROGRESS', meta={
                 'output': accumulated_output,
                 'cmd': command
@@ -456,6 +469,7 @@ def run_custom_command_task(self, command: str, mission_id: int = None):
         process.wait()
         
         status_msg = "completed" if process.returncode == 0 else "failed"
+        redis_client.publish(f"scan_logs_{self.request.id}", json.dumps({"type": "status", "content": "SUCCESS" if process.returncode == 0 else "FAILURE"}))
         return {
             "status": status_msg, 
             "return_code": process.returncode,

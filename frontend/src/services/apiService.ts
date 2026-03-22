@@ -345,6 +345,44 @@ export const toolsService = {
     }
     return await response.json();
   },
+  async getActiveTasks(missionId: number): Promise<any> {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_BASE_URL}/missions/${missionId}/active-tasks`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!response.ok) {
+      if (response.status === 401) window.location.reload();
+      return null;
+    }
+    return response.json();
+  },
+
+  async getAllTasks(missionId: number): Promise<any> {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_BASE_URL}/missions/${missionId}/tasks`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!response.ok) {
+      if (response.status === 401) window.location.reload();
+      return null;
+    }
+    return response.json();
+  },
+
+  async clearTasks(missionId: number, taskType?: string): Promise<any> {
+    const token = localStorage.getItem('token');
+    const typeQuery = taskType ? `?task_type=${taskType}` : '';
+    const response = await fetch(`${API_BASE_URL}/missions/${missionId}/tasks${typeQuery}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!response.ok) {
+      if (response.status === 401) window.location.reload();
+      return null;
+    }
+    return response.json();
+  },
+
   async updateVulnerability(vulnId: number | string, data: any) {
     const token = localStorage.getItem('token');
     const response = await fetch(`${API_BASE_URL}/vulnerabilities/${vulnId}`, {

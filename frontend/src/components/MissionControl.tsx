@@ -15,6 +15,8 @@ interface MissionControlProps {
   userRole: string;
 }
 
+const stripAnsi = (str: string) => str.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+
 export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack, onEdit, notify, lang, userRole }) => {
   const t = translations[lang];
   const [customCLIInput, setCustomCLIInput] = useState('');
@@ -85,9 +87,103 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
   const isScanRunningRef = useRef(false);
 
   useEffect(() => {
-    if (scrollRef.current) {
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    let activeWsMain: WebSocket | null = null;
+    let activeWsCustom: WebSocket | null = null;
+    
+    toolsService.getAllTasks(mission.id).then((data: any) => {
+        if(data && data.tasks) {
+            const allMainLines: string[] = [];
+            const allCustomLines: string[] = [];
+            
+            const setupWs = (tId: string, tType: string) => {
+                const isRunningRef = tType === 'custom' ? isCustomScanRunningRef : isScanRunningRef;
+                isRunningRef.current = true;
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const ws = new WebSocket(`${protocol}//${window.location.host}/api/ws/scan/${tId}`);
+                
+                ws.onopen = () => console.log('Reconnected to active task:', tId);
+                
+                ws.onmessage = (event) => {
+                    if (!isRunningRef.current) {
+                        ws.close();
+                        return;
+                    }
+                    try {
+                        const evtData = JSON.parse(event.data);
+                        if (evtData.type === 'log' && evtData.content) {
+                            const line = stripAnsi(evtData.content.replace(/\n$/, ''));
+                            if (line) {
+                                if (tType === 'custom') setCustomTerminalOutput(prev => [...prev, line]);
+                                else setTerminalOutput(prev => [...prev, line]);
+                            }
+                        } else if (evtData.type === 'status') {
+                            isRunningRef.current = false;
+                            if (tType === 'custom') {
+                                setIsCustomCommandRunning(false);
+                                setCurrentCustomTaskId(null);
+                            } else {
+                                setIsCommandRunning(false);
+                                setCurrentTaskId(null);
+                            }
+                            ws.close();
+                        }
+                    } catch (e) {}
+                };
+                return ws;
+            };
+
+            data.tasks.forEach((task: any) => {
+                const rawOutput = task.output || "";
+                const outLines = rawOutput.split('\n').map(stripAnsi);
+                const isActive = task.status !== "SUCCESS" && task.status !== "FAILURE" && task.status !== "REVOKED";
+                
+                if (isActive && outLines.length > 0) outLines.pop();
+                
+                const timeStr = task.created_at ? `[${new Date(task.created_at).toLocaleTimeString()}] ` : '';
+
+                if (task.task_type === 'custom') {
+                    if (allCustomLines.length > 0) allCustomLines.push("---------------------------------------------------");
+                    allCustomLines.push(`${timeStr}$ ${task.command || 'Unknown command'}`);
+                    allCustomLines.push(`[ID: ${task.task_id}] Status: ${task.status}`);
+                    if (rawOutput) allCustomLines.push(...outLines);
+                    allCustomLines.push("");
+                    
+                    if (isActive) {
+                        setIsCustomCommandRunning(true);
+                        setCurrentCustomTaskId(task.task_id);
+                        activeWsCustom = setupWs(task.task_id, 'custom');
+                    }
+                } else {
+                    if (allMainLines.length > 0) allMainLines.push("---------------------------------------------------");
+                    if (task.task_type === 'auto') {
+                        allMainLines.push(`${timeStr}> Running Auto Pilot on ${mission.target}`);
+                    } else {
+                        allMainLines.push(`${timeStr}> Running manual scan with tools: ${task.tool} on ${mission.target}`);
+                    }
+                    allMainLines.push(`[ID: ${task.task_id}] Status: ${task.status}`);
+                    if (rawOutput) allMainLines.push(...outLines);
+                    allMainLines.push("");
+                    
+                    if (isActive) {
+                        setIsCommandRunning(true);
+                        setCurrentTaskId(task.task_id);
+                        activeWsMain = setupWs(task.task_id, 'main');
+                    }
+                }
+            });
+            
+            setTerminalOutput(allMainLines);
+            setCustomTerminalOutput(allCustomLines);
+        }
+    }).catch(e => console.error("Failed to fetch all tasks", e));
+    
+    return () => {
+        if(activeWsMain) activeWsMain.close();
+        if(activeWsCustom) activeWsCustom.close();
+    };
+  }, [mission.id]);
+
+  useEffect(() => {
   }, [terminalOutput]);
 
   useEffect(() => {
@@ -110,6 +206,19 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
           notify('error', 'Failed to stop command.');
       }
   };
+
+    const clearMainHistory = async () => {
+        try {
+            await toolsService.clearTasks(mission.id, "main");
+            setTerminalOutput([]);
+            notify("success", "Historique nettoyé");
+        } catch (e) {
+            notify("error", "Erreur lors du nettoyage");
+        }
+    };
+
+
+
 
   const runCommand = async (commandName: string, command: string) => {
     if (isCommandRunning) return;
@@ -218,6 +327,19 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
           notify('error', 'Failed to stop command.');
       }
   };
+
+    const clearCustomHistory = async () => {
+        try {
+            await toolsService.clearTasks(mission.id, "custom");
+            setCustomTerminalOutput([]);
+            notify("success", "Historique nettoyé");
+        } catch (e) {
+            notify("error", "Erreur lors du nettoyage");
+        }
+    };
+
+
+
 
   const runCustomCommand = async (command: string) => {
     if (isCustomCommandRunning || !command.trim()) return;
@@ -662,6 +784,14 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                                 STOP
                             </button>
                         )}
+                        {!isCommandRunning && (
+                            <button 
+                                onClick={clearMainHistory}
+                                className="px-2 py-0.5 text-xs bg-gray-500/10 hover:bg-gray-500/20 text-gray-400 border border-gray-500/20 rounded flex items-center gap-1 transition-colors"
+                            >
+                                Clear
+                            </button>
+                        )}
                     </div>
                     <div className="flex-1 p-4 overflow-y-auto font-mono text-sm" ref={scrollRef}>
                         <div className="text-slate-500 mb-2"># Terminal Session Initialized.</div>
@@ -763,6 +893,14 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                                     STOP
                                 </button>
                             )}
+                        {!isCommandRunning && (
+                            <button 
+                                onClick={clearMainHistory}
+                                className="px-2 py-0.5 text-xs bg-gray-500/10 hover:bg-gray-500/20 text-gray-400 border border-gray-500/20 rounded flex items-center gap-1 transition-colors"
+                            >
+                                Clear
+                            </button>
+                        )}
                         </div>
                     </div>
                     <div className="flex-1 p-4 overflow-y-auto font-mono text-sm" ref={scrollRef}>
@@ -839,6 +977,14 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                         >
                             <div className="w-1.5 h-1.5 rounded-sm bg-red-500"></div>
                             STOP
+                        </button>
+                    )}
+                    {!isCustomCommandRunning && (
+                        <button 
+                            onClick={clearCustomHistory}
+                            className="px-2 py-0.5 text-xs bg-gray-500/10 hover:bg-gray-500/20 text-gray-400 border border-gray-500/20 rounded flex items-center gap-1 transition-colors"
+                        >
+                            Clear
                         </button>
                     )}
                 </div>
