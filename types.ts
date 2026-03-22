@@ -36,12 +36,23 @@ export interface Vulnerability {
   executed_by?: string;
 }
 
+export interface Client {
+  id: number;
+  name: string;
+  company?: string;
+  email?: string;
+  phone?: string;
+  created_at?: string;
+}
+
 export interface Mission {
   id: string;
   name: string;
   target: string;
   progress: number;
   status: 'Planning' | 'Recon' | 'Scanning' | 'Exploitation (Sim)' | 'Reporting';
+  client_id?: number;
+  client?: Client;
   vulnerabilities: Vulnerability[];
 }
 

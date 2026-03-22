@@ -1,14 +1,10 @@
-import re
-
-with open('backend/app/main.py', 'r') as f:
+with open("backend/app/main.py", "r") as f:
     content = f.read()
 
-content = content.replace("task = tasks.run_scan_task.delay(scan.tool, scan.target, scan.options)", 
-                          "task = tasks.run_scan_task.delay(scan.tool, scan.target, scan.options, scan.mission_id)")
-content = content.replace("task = tasks.run_auto_scan_task.delay(scan.target, scan.tools, scan.port)", 
-                          "task = tasks.run_auto_scan_task.delay(scan.target, scan.tools, scan.port, scan.mission_id)")
-content = content.replace("task = tasks.run_custom_command_task.delay(req.command)", 
-                          "task = tasks.run_custom_command_task.delay(req.command, req.mission_id)")
+new_content = content.replace(
+    '''out_filename = f"Report_{mission.name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d%H%M%S')}.docx"''',
+    '''out_filename = f"{mission.name}_{client_name}_{datetime.now().strftime('%Y-%m-%d')}.docx".replace(' ', '_')'''
+)
 
-with open('backend/app/main.py', 'w') as f:
-    f.write(content)
+with open("backend/app/main.py", "w") as f:
+    f.write(new_content)

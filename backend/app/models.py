@@ -10,6 +10,18 @@ class MissionStatus(str, enum.Enum):
     COMPLETED = "Completed"
     FAILED = "Failed"
 
+class Client(Base):
+    __tablename__ = "clients"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True)
+    company = Column(String, index=True)
+    email = Column(String)
+    phone = Column(String)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    missions = relationship("Mission", back_populates="client")
+
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
@@ -24,10 +36,12 @@ class Mission(Base):
     target = Column(String, index=True)
     status = Column(String, default="Pending")
     progress = Column(Integer, default=0)
+    client_id = Column(Integer, ForeignKey("clients.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
+    client = relationship("Client", back_populates="missions")
     vulnerabilities = relationship("Vulnerability", back_populates="mission", cascade="all, delete-orphan")
 
 class Vulnerability(Base):

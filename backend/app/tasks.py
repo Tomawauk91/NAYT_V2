@@ -83,6 +83,28 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
                 db = SessionLocal()
                 vulns_added = 0
                 
+                
+                # Call generic parser
+                vulns_added = parse_and_save_vulnerabilities(tool, accumulated_output, mission_id, executed_by, db)
+                if vulns_added > 0:
+                    db.commit()
+            except Exception as e:
+                logger.error(f"Error parsing vulnerabilities: {e}")
+            finally:
+                db.close()
+        # -----------------------------
+
+
+        # --- PARSE & SAVE FINDINGS ---
+        if mission_id is not None:
+            try:
+                from .database import SessionLocal
+                from .models import Vulnerability
+                import re
+                
+                db = SessionLocal()
+                vulns_added = 0
+                
                 if tool == "nmap":
                     # Parse Nmap Output
                     for line in accumulated_output.split('\n'):
@@ -98,13 +120,8 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
                             # Check if exists
                             exists = db.query(Vulnerability).filter_by(mission_id=mission_id, title=title).first()
                             if not exists:
-                                v = Vulnerability(title=title, severity="Low", description=desc, evidence=accumulated_output, mission_id=mission_id, executed_by=executed_by)
+                                v = Vulnerability(title=title, severity="Low", description=desc, mission_id=mission_id)
                                 db.add(v)
-                                vulns_added += 1
-                            else:
-                                exists.description = desc
-                                exists.evidence = accumulated_output
-                                exists.executed_by = executed_by
                                 vulns_added += 1
                                 
                 elif tool == "nikto":
@@ -117,56 +134,10 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
                             
                             exists = db.query(Vulnerability).filter_by(mission_id=mission_id, title=title).first()
                             if not exists:
-                                v = Vulnerability(title=title, severity="Medium", description=desc, evidence=accumulated_output, mission_id=mission_id, executed_by=executed_by)
+                                v = Vulnerability(title=title, severity="Medium", description=desc, mission_id=mission_id)
                                 db.add(v)
                                 vulns_added += 1
-                            else:
-                                exists.description = desc
-                                exists.evidence = accumulated_output
-                                exists.executed_by = executed_by
-                                vulns_added += 1
                                 
-                
-                elif tool == "nuclei":
-                    # Parse Nuclei Output
-                    # Example: [CVE-2020-14883] [http] [critical] http://example.com
-                    for line in accumulated_output.split('\n'):
-                        match = re.search(r'^\[(.*?)\]\s+\[(.*?)\]\s+\[(.*?)\]\s+(.*)', line)
-                        if match:
-                            vuln_id = match.group(1)
-                            proto = match.group(2)
-                            severity = match.group(3).capitalize()
-                            target_url = match.group(4)
-                            title = f"Nuclei Finding: {vuln_id}"
-                            desc = f"Nuclei found a vulnerability ({vuln_id}) via {proto} at {target_url}"
-                            
-                            exists = db.query(Vulnerability).filter_by(mission_id=mission_id, title=title).first()
-                            if not exists:
-                                v = Vulnerability(title=title, severity=severity, description=desc, evidence=accumulated_output, mission_id=mission_id, executed_by=executed_by)
-                                db.add(v)
-                                vulns_added += 1
-                            else:
-                                exists.description = desc
-                                exists.evidence = accumulated_output
-                                exists.executed_by = executed_by
-                                vulns_added += 1
-                                
-                else:
-                    # Generic fallback for any other tool (dirb, sqlmap, gobuster, etc.)
-                    title = f"{tool.capitalize()} Execution Log"
-                    desc = f"Raw execution output for {tool.capitalize()}."
-                    
-                    exists = db.query(Vulnerability).filter_by(mission_id=mission_id, title=title).first()
-                    if not exists:
-                        v = Vulnerability(title=title, severity="Info", description=desc, evidence=accumulated_output, mission_id=mission_id, executed_by=executed_by)
-                        db.add(v)
-                        vulns_added += 1
-                    else:
-                        exists.description = desc
-                        exists.evidence = accumulated_output
-                        exists.executed_by = executed_by
-                        vulns_added += 1
-
                 if vulns_added > 0:
                     db.commit()
             except Exception as e:
@@ -389,6 +360,16 @@ def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port
                 
                 if process.returncode != 0:
                     overall_output += f"\n[!] Tool exited with code {process.returncode}\n"
+
+                if mission_id is not None:
+                    try:
+                        from .database import SessionLocal
+                        db_sess = SessionLocal()
+                        parse_and_save_vulnerabilities(tool_key, tool_output, mission_id, "Autopilot", db_sess)
+                        db_sess.commit()
+                        db_sess.close()
+                    except Exception as e:
+                        logger.error(f"Error saving auto scan chunk: {e}")
                     
                 # Parse Nmap output to adapt future tools
                 if tool_key == "nmap":

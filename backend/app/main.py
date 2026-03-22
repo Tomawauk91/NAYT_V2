@@ -1,8 +1,13 @@
 from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
 from pydantic import BaseModel
+import os
+from datetime import datetime
+from docxtpl import DocxTemplate
+
 from . import models, schemas, auth, database, tasks
 from .database import engine, get_db
 from fastapi.security import OAuth2PasswordRequestForm
@@ -21,6 +26,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"]
 )
 
 @app.on_event("startup")
@@ -113,6 +119,42 @@ def reset_password(user_id: int, reset: PasswordReset, db: Session = Depends(get
     db.commit()
     return {"status": "success"}
 
+# --- Client Routes ---
+@app.get("/clients", response_model=List[schemas.Client])
+def read_clients(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    return db.query(models.Client).offset(skip).limit(limit).all()
+
+@app.post("/clients", response_model=schemas.Client)
+def create_client(client: schemas.ClientCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    db_client = models.Client(**client.dict())
+    db.add(db_client)
+    db.commit()
+    db.refresh(db_client)
+    return db_client
+
+@app.delete("/clients/{client_id}")
+def delete_client(client_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    client = db.query(models.Client).filter(models.Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    db.delete(client)
+    db.commit()
+    return {"status": "success"}
+
+@app.put("/clients/{client_id}", response_model=schemas.Client)
+def update_client(client_id: int, client_update: schemas.ClientUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    client = db.query(models.Client).filter(models.Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    update_data = client_update.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(client, key, value)
+        
+    db.commit()
+    db.refresh(client)
+    return client
+
 # --- Mission Routes ---
 @app.get("/missions", response_model=List[schemas.Mission])
 def read_missions(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
@@ -126,6 +168,21 @@ def create_mission(mission: schemas.MissionCreate, db: Session = Depends(get_db)
     db.commit()
     db.refresh(db_mission)
     return db_mission
+
+@app.put("/missions/{mission_id}", response_model=schemas.Mission)
+def update_mission(mission_id: int, mission_update: schemas.MissionUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
+    if not mission:
+        raise HTTPException(status_code=404, detail="Mission not found")
+    
+    update_data = mission_update.dict(exclude_unset=True)
+    # Handle explicit null setting for client_id if frontend sends it as None (already handled by exclude_unset=True for omitted fields, but if it's sent as None, it will be included)
+    for key, value in update_data.items():
+        setattr(mission, key, value)
+        
+    db.commit()
+    db.refresh(mission)
+    return mission
 
 @app.delete("/missions/{mission_id}")
 def delete_mission(mission_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
@@ -381,3 +438,89 @@ async def websocket_endpoint(websocket: WebSocket, username: str):
         fully_disconnected = ws_manager.disconnect(websocket, username)
         if fully_disconnected:
             await ws_manager.broadcast({"type": "user_disconnected", "username": username, "users": list(ws_manager.active_connections.keys())})
+
+# Mathematical Mapping for severity to CVSS
+SEVERITY_WEIGHTS = {
+    "Critical": 9.5,
+    "High": 8.0,
+    "Medium": 5.5,
+    "Low": 3.0,
+    "Info": 0.0
+}
+
+@app.get("/missions/{mission_id}/report", response_class=FileResponse)
+def generate_mission_report(mission_id: int, db: Session = Depends(get_db)):
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
+    if not mission:
+        raise HTTPException(status_code=404, detail="Mission not found")
+
+    client_name = mission.client.name if mission.client else "Unknown Client"
+    client_company = mission.client.company if mission.client and mission.client.company else "N/A"
+
+    # Fetch vulnerabilities
+    vulns = db.query(models.Vulnerability).filter(models.Vulnerability.mission_id == mission_id).all()
+
+    # Step 2: Calculate Mathematical Stats
+    stats = {
+        "Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0
+    }
+    
+    total_score = 0.0
+    vulns_data = []
+
+    for v in vulns:
+        severity = v.severity if v.severity in stats else "Info"
+        stats[severity] += 1
+        
+        # Extrapolate a pseudo-CVSS if none exists
+        cvss = SEVERITY_WEIGHTS.get(severity, 0.0)
+        total_score += cvss
+        
+        vulns_data.append({
+            "title": v.title or "Untitled",
+            "severity": v.severity or "Info",
+            "cvss": str(cvss),
+            "status": v.status or "Open",
+            "description": v.description or "No description",
+            "evidence": v.evidence or ""
+        })
+
+    total_vulns = len(vulns)
+    max_possible_score = total_vulns * 10.0 if total_vulns > 0 else 1.0
+    overall_risk_score = round((total_score / max_possible_score) * 100, 2) if total_vulns > 0 else 0
+
+    # Step 3: Render Docx Template
+    template_path = os.path.join(os.path.dirname(__file__), "report_template.docx")
+    
+    if not os.path.exists(template_path):
+        raise HTTPException(status_code=500, detail="Report template not found")
+
+    doc = DocxTemplate(template_path)
+    
+    context = {
+        "mission_name": mission.name,
+        "client_name": client_name,
+        "client_company": client_company,
+        "target": mission.target,
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "total_vulnerabilities": total_vulns,
+        "critical_count": stats["Critical"],
+        "high_count": stats["High"],
+        "medium_count": stats["Medium"],
+        "low_count": stats["Low"],
+        "info_count": stats["Info"],
+        "overall_risk_score": overall_risk_score,
+        "vulnerabilities": vulns_data
+    }
+    
+    doc.render(context)
+    
+    # Save the generated report
+    os.makedirs("/app/reports", exist_ok=True)
+    out_filename = f"{mission.name}_{client_name}_{datetime.now().strftime('%Y-%m-%d')}.docx".replace(' ', '_')
+    out_path = os.path.join("/app/reports", out_filename)
+    
+    doc.save(out_path)
+    
+    return FileResponse(path=out_path, filename=out_filename, media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+

@@ -46,6 +46,54 @@ export const toolsService = {
       return await response.json();
   },
 
+  // Clients
+  async getClients() {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/clients`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error('Failed to fetch clients');
+      return await response.json();
+  },
+
+  async createClient(client: any) {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/clients`, {
+          method: 'POST',
+          headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(client)
+      });
+      if (!response.ok) throw new Error('Failed to create client');
+      return await response.json();
+  },
+
+  async updateClient(id: number, clientData: any) {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/clients/${id}`, {
+          method: 'PUT',
+          headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(clientData)
+      });
+      if (!response.ok) throw new Error('Failed to update client');
+      return await response.json();
+  },
+
+  async deleteClient(id: number) {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/clients/${id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error('Failed to delete client');
+      return await response.json();
+  },
+
   async createMission(mission: any) {
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/missions`, {
@@ -77,6 +125,59 @@ export const toolsService = {
           headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!response.ok) throw new Error('Failed to delete mission');
+      return await response.json();
+  },
+
+  async downloadMissionReport(id: number) {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/missions/${id}/report`, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error('Failed to generate report');
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+
+      let filename = `Report_Mission_${id}.docx`;
+      const contentDisposition = response.headers.get('content-disposition');
+      if (contentDisposition) {
+          const match = contentDisposition.match(/filename="?([^"]+)"?/);
+          if (match && match[1]) {
+              filename = match[1];
+          }
+      }
+      a.download = filename;
+
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+  },
+
+  async generateExecutiveSummary(id: number) {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/missions/${id}/report`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error('Failed to generate AI report');
+      return await response.json();
+  },
+  
+  async updateMission(id: number | string, data: any) {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/missions/${id}`, {
+          method: 'PUT',
+          headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}` 
+          },
+          body: JSON.stringify(data)
+      });
+      if (!response.ok) throw new Error('Failed to update mission');
       return await response.json();
   },
   

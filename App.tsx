@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { NAV_ITEMS, ADMIN_NAV_ITEM } from './constants';
-import { Role, Mission, User, Notification, Language, Theme } from './types';
+import { Role, Mission, User, Notification, Language, Theme, Client } from './types';
 import { translations } from './translations';
 import { Dashboard } from './components/Dashboard';
 import { MissionControl } from './components/MissionControl';
@@ -8,11 +8,12 @@ import { NotificationSystem } from './components/NotificationSystem';
 import { AdminPanel } from './components/AdminPanel';
 import { toolsService } from './services/apiService';
 import { ReconView, VulnerabilitiesView, ReportsView } from './components/FunctionalViews';
-import { Shield, LogOut, ChevronRight, User as UserIcon, Lock, Menu, X, Plus, Languages, Sun, Moon, Trash2, Users } from 'lucide-react';
+import { Shield, LogOut, ChevronRight, User as UserIcon, Lock, Menu, X, Plus, Languages, Sun, Moon, Trash2, Users, Settings } from 'lucide-react';
 
 export default function App() {
   const [users, setUsers] = useState<User[]>([]);
   const [missions, setMissions] = useState<Mission[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [user, setUser] = useState<User | null>(null);
   const [lang, setLang] = useState<Language>('en'); // Default Language
   const [theme, setTheme] = useState<Theme>('dark'); // Default Theme
@@ -55,6 +56,17 @@ export default function App() {
   // Modals
   const [showProfile, setShowProfile] = useState(false);
   const [showNewMission, setShowNewMission] = useState(false);
+  const [showEditMission, setShowEditMission] = useState(false);
+  const [editingMission, setEditingMission] = useState<Mission | null>(null);
+  const [showNewClient, setShowNewClient] = useState(false);
+  const [showClientManager, setShowClientManager] = useState(false);
+  const [editingClient, setEditingClient] = useState<Client | null>(null);
+
+  // New Client State
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientCompany, setNewClientCompany] = useState('');
+  const [newClientEmail, setNewClientEmail] = useState('');
+  const [newClientPhone, setNewClientPhone] = useState('');
 
   // Login Form State
   const [username, setUsername] = useState('');
@@ -68,6 +80,7 @@ export default function App() {
   // New Mission State
   const [newMissionName, setNewMissionName] = useState('');
   const [newMissionTarget, setNewMissionTarget] = useState('');
+  const [newMissionClientId, setNewMissionClientId] = useState<number | ''>('');
 
   const t = translations[lang];
 
@@ -129,6 +142,9 @@ export default function App() {
           const data = await toolsService.getMissions();
           setMissions(data);
           
+          const clientsData = await toolsService.getClients();
+          setClients(clientsData);
+
           setSelectedMission(currentSelected => {
               if (currentSelected) {
                   const updated = data.find((m: Mission) => m.id === currentSelected.id);
@@ -229,6 +245,65 @@ export default function App() {
       }
   };
 
+  const handleCreateClient = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!newClientName) {
+          addNotification('error', 'Client Name is required');
+          return;
+      }
+      
+      try {
+          if (editingClient) {
+            const updatedClient = await toolsService.updateClient(editingClient.id, {
+                name: newClientName,
+                company: newClientCompany,
+                email: newClientEmail,
+                phone: newClientPhone
+            });
+            setClients(clients.map(c => c.id === editingClient.id ? updatedClient : c));
+            addNotification('success', 'Client updated successfully');
+            setEditingClient(null);
+          } else {
+            const newClient = await toolsService.createClient({
+                name: newClientName,
+                company: newClientCompany,
+                email: newClientEmail,
+                phone: newClientPhone
+            });
+            setClients([...clients, newClient]);
+            addNotification('success', 'Client created successfully');
+          }
+          
+          setNewClientName('');
+          setNewClientCompany('');
+          setNewClientEmail('');
+          setNewClientPhone('');
+          setShowNewClient(false);
+          
+      } catch (e: any) {
+          console.error("Client creation/update error:", e);
+          addNotification('error', e.message || 'Failed to create/update client');
+      }
+  };
+
+  const openEditClient = (client: Client) => {
+      setEditingClient(client);
+      setNewClientName(client.name || '');
+      setNewClientCompany(client.company || '');
+      setNewClientEmail(client.email || '');
+      setNewClientPhone(client.phone || '');
+      setShowNewClient(true);
+  };
+
+  const openNewClient = () => {
+      setEditingClient(null);
+      setNewClientName('');
+      setNewClientCompany('');
+      setNewClientEmail('');
+      setNewClientPhone('');
+      setShowNewClient(true);
+  };
+
   const handleCreateMission = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!newMissionName || !newMissionTarget) {
@@ -241,18 +316,47 @@ export default function App() {
               name: newMissionName,
               target: newMissionTarget,
               status: 'Planning',
-              progress: 0
+              progress: 0,
+              client_id: newMissionClientId ? Number(newMissionClientId) : undefined
           });
           
           setMissions([...missions, newMission]);
           setShowNewMission(false);
           setNewMissionName('');
           setNewMissionTarget('');
+          setNewMissionClientId('');
           addNotification('success', t.missionCreated);
           setSelectedMission(newMission);
       } catch (e: any) {
           console.error("Mission creation error:", e);
           addNotification('error', e.message || 'Failed to create mission');
+      }
+  };
+
+  const handleUpdateMission = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!editingMission || !editingMission.name || !editingMission.target) {
+          addNotification('error', t.fillAllFields);
+          return;
+      }
+      
+      try {
+          const updatedMission = await toolsService.updateMission(editingMission.id, {
+              name: editingMission.name,
+              target: editingMission.target,
+              client_id: (editingMission as any).client_id || undefined
+          });
+          
+          setMissions(missions.map(m => m.id === updatedMission.id ? updatedMission : m));
+          if (selectedMission?.id === updatedMission.id) {
+              setSelectedMission(updatedMission);
+          }
+          setShowEditMission(false);
+          setEditingMission(null);
+          addNotification('success', 'Mission updated');
+      } catch (e: any) {
+          console.error("Mission update error:", e);
+          addNotification('error', e.message || 'Failed to update mission');
       }
   };
 
@@ -545,6 +649,10 @@ export default function App() {
             <MissionControl 
                 mission={selectedMission} 
                 onBack={() => { fetchMissions(); setSelectedMission(null); }} 
+                onEdit={() => {
+                    setEditingMission(selectedMission);
+                    setShowEditMission(true);
+                }}
                 notify={addNotification}
                 lang={lang}
                 userRole={user?.role || "Viewer"}
@@ -557,7 +665,13 @@ export default function App() {
                 {activeView === 'missions' && (
                 <div className="space-y-6">
                     {user.role !== 'Viewer' && user.role !== 'viewer' && user.role !== 'VIEWER' && (
-                    <div className="flex justify-end">
+                    <div className="flex justify-end gap-3">
+                        <button 
+                            onClick={() => setShowClientManager(true)}
+                            className="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 shadow-lg hover:shadow-slate-500/25 transition-all"
+                        >
+                            <Users size={16} /> Edit Clients
+                        </button>
                         <button 
                             onClick={() => setShowNewMission(true)}
                             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 shadow-lg hover:shadow-blue-500/25 transition-all"
@@ -574,22 +688,39 @@ export default function App() {
                             className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-500 hover:shadow-lg transition-all cursor-pointer group hover:-translate-y-1 shadow-sm relative"
                         >
                             {(user.role === Role.ADMIN || user.role === 'Admin' || user.role === 'admin') && (
-                                <button
-                                    onClick={(e) => handleDeleteMission(e, mission.id)}
-                                    className="absolute top-6 right-6 p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors z-10"
-                                    title={t.delete || "Delete"}
-                                >
-                                    <Trash2 size={18} />
-                                </button>
+                                <div className="absolute top-6 right-6 flex gap-2 z-10">
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setEditingMission(mission);
+                                            setShowEditMission(true);
+                                        }}
+                                        className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-full transition-colors"
+                                        title="Edit Mission"
+                                    >
+                                        <Settings size={18} />
+                                    </button>
+                                    <button
+                                        onClick={(e) => handleDeleteMission(e, mission.id)}
+                                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors"
+                                        title={t.delete || "Delete"}
+                                    >
+                                        <Trash2 size={18} />
+                                    </button>
+                                </div>
                             )}
                             <div className="flex justify-between items-start mb-4">
                                 <div>
-                                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors pr-10">{mission.name}</h3>
+                                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors pr-10">
+                                        {mission.name}
+                                    </h3>
+                                    {mission.client && (
+                                        <p className="text-xs font-medium text-slate-400 dark:text-slate-500 flex items-center gap-1 mt-1">
+                                            <Users size={12} /> {mission.client.name}
+                                        </p>
+                                    )}
                                     <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">{mission.target}</p>
                                 </div>
-                                <span className="px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs border border-slate-200 dark:border-slate-600 transition-colors group-hover:bg-slate-200 dark:group-hover:bg-slate-600 mr-10">
-                                    {mission.status}
-                                </span>
                             </div>
                             <div className="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2 mb-4 overflow-hidden">
                                 <div className="bg-blue-500 h-2 rounded-full transition-all duration-1000 ease-out" style={{ width: `${mission.progress}%` }}></div>
@@ -666,6 +797,58 @@ export default function App() {
           </div>
       )}
 
+      {/* Edit Mission Modal */}
+      {showEditMission && editingMission && (
+          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 animate-fadeIn">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 w-full max-w-md relative shadow-2xl animate-scaleIn">
+                  <button onClick={() => { setShowEditMission(false); setEditingMission(null); }} className="absolute top-4 right-4 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+                      <X size={20} />
+                  </button>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                    <Settings size={20} className="text-blue-500" /> Edit Mission
+                  </h3>
+                  <form onSubmit={handleUpdateMission} className="space-y-4">
+                      <div>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">{t.missionName}</label>
+                          <input 
+                            type="text" 
+                            value={editingMission.name}
+                            onChange={e => setEditingMission({...editingMission, name: e.target.value})}
+                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-3 py-2 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                            placeholder={t.missionNamePlaceholder}
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">{t.target} (IP/Domain)</label>
+                          <input 
+                            type="text" 
+                            value={editingMission.target}
+                            onChange={e => setEditingMission({...editingMission, target: e.target.value})}
+                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-3 py-2 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                            placeholder={t.targetPlaceholder}
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Client (Optional)</label>
+                          <select 
+                            value={(editingMission as any).client_id || ''}
+                            onChange={e => setEditingMission({...editingMission, client_id: e.target.value ? Number(e.target.value) : undefined} as Mission)}
+                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-3 py-2 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                          >
+                            <option value="">-- No Client --</option>
+                            {clients.map(c => (
+                                <option key={c.id} value={c.id}>{c.name} {c.company ? `(${c.company})` : ''}</option>
+                            ))}
+                          </select>
+                      </div>
+                      <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg text-sm font-medium transition-colors shadow-lg hover:shadow-blue-500/20">
+                          Save Changes
+                      </button>
+                  </form>
+              </div>
+          </div>
+      )}
+
       {/* New Mission Modal */}
       {showNewMission && (
           <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 animate-fadeIn">
@@ -697,8 +880,123 @@ export default function App() {
                             placeholder={t.targetPlaceholder}
                           />
                       </div>
+                      <div>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Client (Optional)</label>
+                          <select 
+                            value={newMissionClientId}
+                            onChange={e => setNewMissionClientId(e.target.value ? Number(e.target.value) : '')}
+                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-3 py-2 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                          >
+                            <option value="">-- No Client --</option>
+                            {clients.map(c => (
+                                <option key={c.id} value={c.id}>{c.name} {c.company ? `(${c.company})` : ''}</option>
+                            ))}
+                          </select>
+                      </div>
                       <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg text-sm font-medium transition-colors shadow-lg hover:shadow-blue-500/20">
                           {t.initialize}
+                      </button>
+                  </form>
+              </div>
+          </div>
+      )}
+
+      {/* Client Manager Modal */}
+      {showClientManager && (
+          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 animate-fadeIn">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 w-full max-w-2xl relative shadow-2xl animate-scaleIn flex flex-col max-h-[90vh]">
+                  <button onClick={() => setShowClientManager(false)} className="absolute top-4 right-4 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+                      <X size={20} />
+                  </button>
+                  <div className="flex justify-between items-center mb-6">
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                          <Users size={20} className="text-slate-500" /> Client Manager
+                      </h3>
+                      <button 
+                          onClick={openNewClient}
+                          className="bg-slate-600 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors mr-6"
+                      >
+                          <Plus size={16} /> New Client
+                      </button>
+                  </div>
+                  
+                  <div className="overflow-y-auto flex-1 pr-2">
+                      {clients.length === 0 ? (
+                          <div className="text-center py-8 text-slate-500 dark:text-slate-400 text-sm">
+                              No clients found. Create one to get started.
+                          </div>
+                      ) : (
+                          <div className="space-y-3">
+                              {clients.map(client => (
+                                  <div key={client.id} className="bg-slate-50 text-slate-900 dark:bg-slate-800 dark:text-white border border-slate-200 dark:border-slate-700 rounded-lg p-4 flex justify-between items-center group hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
+                                      <div>
+                                          <div className="font-semibold">{client.name}</div>
+                                          {(client.company || client.email) && (
+                                              <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex gap-3">
+                                                  {client.company && <span>{client.company}</span>}
+                                                  {client.email && <span>{client.email}</span>}
+                                              </div>
+                                          )}
+                                      </div>
+                                      <button 
+                                          onClick={() => openEditClient(client)}
+                                          className="text-slate-400 hover:text-blue-500 p-2 opacity-0 group-hover:opacity-100 transition-all"
+                                      >
+                                          <Settings size={18} />
+                                      </button>
+                                  </div>
+                              ))}
+                          </div>
+                      )}
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* New/Edit Client Modal */}
+      {showNewClient && (
+          <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4 animate-fadeIn">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 w-full max-w-md relative shadow-2xl animate-scaleIn">
+                  <button onClick={() => setShowNewClient(false)} className="absolute top-4 right-4 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+                      <X size={20} />
+                  </button>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                    <Users size={20} className="text-slate-500" /> {editingClient ? "Edit Client" : "New Client"}
+                  </h3>
+                  <form onSubmit={handleCreateClient} className="space-y-4">
+                      <div>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Company/Client Name *</label>
+                          <input 
+                            type="text" 
+                            required
+                            value={newClientName}
+                            onChange={e => setNewClientName(e.target.value)}
+                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-3 py-2 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-slate-500 outline-none transition-all"
+                            placeholder="e.g. Acme Corp"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Contact Name (Optional)</label>
+                          <input 
+                            type="text" 
+                            value={newClientCompany}
+                            onChange={e => setNewClientCompany(e.target.value)}
+                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-3 py-2 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-slate-500 outline-none transition-all"
+                            placeholder="e.g. John Doe"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Email (Optional)</label>
+                          <input 
+                            type="email" 
+                            value={newClientEmail}
+                            onChange={e => setNewClientEmail(e.target.value)}
+                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-3 py-2 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-slate-500 outline-none transition-all"
+                            placeholder="contact@acme.com"
+                          />
+                      </div>
+                      <button type="submit" className="w-full bg-slate-600 hover:bg-slate-700 text-white py-2.5 rounded-lg text-sm font-medium transition-colors shadow-lg hover:shadow-slate-500/20">
+                          {editingClient ? "Save Client" : "Create Client"}
                       </button>
                   </form>
               </div>

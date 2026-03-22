@@ -22,19 +22,50 @@ class Vulnerability(VulnerabilityBase):
     class Config:
         from_attributes = True
 
+class ClientBase(BaseModel):
+    name: str
+    company: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
+class ClientCreate(ClientBase):
+    pass
+
+class ClientUpdate(BaseModel):
+    name: Optional[str] = None
+    company: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
+class Client(ClientBase):
+    id: int
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
 class MissionBase(BaseModel):
     name: str
     target: str
     status: str = "Pending"
     progress: int = 0
+    client_id: Optional[int] = None
 
 class MissionCreate(MissionBase):
     pass
+
+class MissionUpdate(BaseModel):
+    name: Optional[str] = None
+    target: Optional[str] = None
+    status: Optional[str] = None
+    progress: Optional[int] = None
+    client_id: Optional[int] = None # Important: can also use -1 or something if we want to remove client, but usually frontend sends null to unset
 
 class Mission(MissionBase):
     id: int
     created_at: datetime
     vulnerabilities: List[Vulnerability] = []
+    client: Optional[Client] = None
     
     class Config:
         from_attributes = True

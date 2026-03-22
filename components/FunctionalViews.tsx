@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Mission, Criticality, Status, Language } from '../types';
 import { translations } from '../translations';
 import { Search, ShieldAlert, FileText, Download, Globe, Server, Trash2 } from 'lucide-react';
@@ -22,7 +22,9 @@ export const ReconView: React.FC<FunctionalViewProps> = ({ missions, lang }) => 
          <p className="text-slate-500 dark:text-slate-400 mb-6">{t.reconDesc}</p>
          
          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {missions.map(mission => (
+            {missions.map(mission => {
+                const reconVulns = mission.vulnerabilities?.filter(v => v.title && v.title.startsWith("Open Port:")) || [];
+                return (
                 <div key={mission.id} className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-4 transition-colors">
                     <div className="flex items-center gap-3 mb-3">
                         <Server size={20} className="text-emerald-500 dark:text-emerald-400" />
@@ -30,27 +32,27 @@ export const ReconView: React.FC<FunctionalViewProps> = ({ missions, lang }) => 
                     </div>
                     <div className="text-xs text-slate-500 mb-3 uppercase tracking-wider">{t.discoveredServices}</div>
                     <div className="space-y-2">
-                        <div className="flex justify-between text-sm">
-                            <span className="text-slate-600 dark:text-slate-300">tcp/80</span>
-                            <span className="text-slate-500">http (nginx)</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                            <span className="text-slate-600 dark:text-slate-300">tcp/443</span>
-                            <span className="text-slate-500">https (nginx)</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                            <span className="text-slate-600 dark:text-slate-300">tcp/22</span>
-                            <span className="text-slate-500">ssh (OpenSSH)</span>
-                        </div>
+                        {reconVulns.length > 0 ? (
+                            reconVulns.map(v => {
+                                const match = v.title.match(/Open Port:\s*([^\s]+)\s*\((.+)\)/);
+                                const port = match ? match[1] : v.title;
+                                const service = match ? match[2] : "";
+                                return (
+                                    <div key={v.id} className="flex justify-between text-sm">
+                                        <span className="text-slate-600 dark:text-slate-300 font-mono">{port}</span>
+                                        <span className="text-slate-500">{service}</span>
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <div className="text-sm text-slate-500 italic">Aucun port détecté via Nmap.</div>
+                        )}
                     </div>
                     <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center">
-                        <span className="text-xs text-slate-500">{t.lastScanned}: 2h ago</span>
-                        <button className="text-xs bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-blue-500 dark:text-blue-400 px-2 py-1 rounded border border-slate-200 dark:border-slate-700 transition-colors">
-                            {t.viewMap}
-                        </button>
+                        <span className="text-xs text-slate-500">Mission: {mission.name}</span>
                     </div>
                 </div>
-            ))}
+            )})}
          </div>
       </div>
     </div>
@@ -180,6 +182,29 @@ export const VulnerabilitiesView: React.FC<FunctionalViewProps> = ({ missions, l
 
 export const ReportsView: React.FC<FunctionalViewProps> = ({ missions, lang }) => {
   const t = translations[lang];
+  const [reportEngine, setReportEngine] = useState('docx');
+  const [loadingMissionId, setLoadingMissionId] = useState<string | null>(null);
+
+  useEffect(() => {
+     toolsService.getConfig('report_type').then(data => {
+         if(data && data.value) setReportEngine(data.value);
+     }).catch(() => {});
+  }, []);
+
+  const handleDownload = async (missionId: string) => {
+      setLoadingMissionId(missionId);
+      try {
+          if(reportEngine === 'docx') {
+              await toolsService.downloadMissionReport(missionId as any);
+          } else {
+              await toolsService.downloadMissionReport(missionId as any); 
+          }
+      } catch (e) {
+          console.error(e);
+      }
+      setLoadingMissionId(null);
+  };
+
   return (
     <div className="space-y-6 animate-fadeIn">
          <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 transition-colors">
@@ -187,45 +212,47 @@ export const ReportsView: React.FC<FunctionalViewProps> = ({ missions, lang }) =
                 <FileText className="text-slate-500 dark:text-slate-200" /> {t.reportingCenter}
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-6 rounded-xl shadow-lg border border-blue-500/30 text-white cursor-pointer hover:scale-[1.02] transition-transform">
+                <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-6 rounded-xl shadow-lg border border-blue-500/30 text-white transition-transform">
                     <FileText size={32} className="mb-4 opacity-80" />
                     <h3 className="font-bold text-lg">{t.genExecSummary}</h3>
-                    <p className="text-blue-100 text-sm mt-2 opacity-80">{t.genExecSummaryDesc}</p>
-                </div>
-                <div className="bg-slate-100 dark:bg-slate-700 p-6 rounded-xl border border-slate-200 dark:border-slate-600 hover:border-slate-300 dark:hover:border-slate-500 cursor-pointer transition-colors">
-                    <Download size={32} className="mb-4 text-emerald-500 dark:text-emerald-400" />
-                    <h3 className="font-bold text-lg text-slate-900 dark:text-white">{t.exportCsv}</h3>
-                    <p className="text-slate-500 dark:text-slate-400 text-sm mt-2">{t.exportCsvDesc}</p>
+                    <p className="text-blue-100 text-sm mt-2 opacity-80">Moteur actuel: {reportEngine.toUpperCase()}</p>
                 </div>
             </div>
 
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mt-8 mb-4">{t.generatedHistory}</h3>
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mt-8 mb-4">Rapports Disponibles pour les Missions</h3>
             <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden transition-colors">
                  <table className="w-full text-left text-sm text-slate-600 dark:text-slate-300">
                     <thead className="bg-slate-100 dark:bg-slate-950 uppercase text-xs font-semibold text-slate-500">
                         <tr>
                             <th className="px-6 py-4">{t.reportName}</th>
                             <th className="px-6 py-4">{t.type}</th>
-                            <th className="px-6 py-4">{t.generatedBy}</th>
-                            <th className="px-6 py-4">{t.date}</th>
+                            <th className="px-6 py-4">Client</th>
+                            <th className="px-6 py-4">Vulnérabilités</th>
                             <th className="px-6 py-4">{t.actions}</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                        <tr className="hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors">
-                            <td className="px-6 py-4 text-slate-900 dark:text-white">Q3_Security_Audit_Final.pdf</td>
-                            <td className="px-6 py-4">PDF (Full)</td>
-                            <td className="px-6 py-4">admin</td>
-                            <td className="px-6 py-4">Oct 28, 2023</td>
-                            <td className="px-6 py-4"><button className="text-blue-500 hover:underline">{t.download}</button></td>
-                        </tr>
-                        <tr className="hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors">
-                            <td className="px-6 py-4 text-slate-900 dark:text-white">Vuln_Scan_192.168.1.0_24.csv</td>
-                            <td className="px-6 py-4">CSV (Raw)</td>
-                            <td className="px-6 py-4">pentester</td>
-                            <td className="px-6 py-4">Oct 27, 2023</td>
-                            <td className="px-6 py-4"><button className="text-blue-500 hover:underline">{t.download}</button></td>
-                        </tr>
+                        {missions.length === 0 && (
+                            <tr><td colSpan={5} className="px-6 py-4 text-center">Aucune mission trouvée.</td></tr>
+                        )}
+                        {missions.map(mission => (
+                            <tr key={mission.id} className="hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors">
+                                <td className="px-6 py-4 text-slate-900 dark:text-white font-medium">{mission.name}</td>
+                                <td className="px-6 py-4">{reportEngine.toUpperCase()} Report</td>
+                                <td className="px-6 py-4">{mission.client?.name || 'N/A'}</td>
+                                <td className="px-6 py-4">{mission.vulnerabilities?.length || 0}</td>
+                                <td className="px-6 py-4">
+                                    <button 
+                                        onClick={() => handleDownload(mission.id)}
+                                        disabled={loadingMissionId === mission.id}
+                                        className="text-white hover:text-blue-100 bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg flex items-center gap-2 font-medium transition-colors disabled:opacity-50"
+                                    >
+                                        <Download size={14} /> 
+                                        {loadingMissionId === mission.id ? "Génération..." : "Aperçu & Générer"}
+                                    </button>
+                                </td>
+                            </tr>
+                        ))}
                     </tbody>
                  </table>
             </div>

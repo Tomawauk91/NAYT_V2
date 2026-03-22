@@ -16,6 +16,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
   const [activeTab, setActiveTab] = useState<'users' | 'config'>('users');
   const [ips, setIps] = useState<IpRange[]>([]);
   const [apiKey, setApiKey] = useState('');
+  const [reportType, setReportType] = useState('docx');
   
   useEffect(() => {
      if(activeTab === 'config') {
@@ -25,8 +26,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
 
   const loadConfig = async () => {
       try {
-          const data = await toolsService.getConfig('gemini_api_key');
-          setApiKey(data.value || '');
+          const keys = await Promise.all([
+             toolsService.getConfig('gemini_api_key'),
+             toolsService.getConfig('report_type')
+          ]);
+          setApiKey(keys[0].value || '');
+          setReportType(keys[1].value || 'docx');
       } catch (e) {
           console.error(e);
       }
@@ -35,9 +40,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
   const saveConfig = async () => {
       try {
           await toolsService.saveConfig('gemini_api_key', apiKey);
-          notify('success', 'API Key Saved');
+          await toolsService.saveConfig('report_type', reportType);
+          notify('success', 'Configuration Saved');
       } catch (e) {
-          notify('error', 'Failed to save key');
+          notify('error', 'Failed to save config');
       }
   };
 
@@ -428,7 +434,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
                             Save
                         </button>
                       </div>
-                      <p className="text-xs text-slate-500 mt-2">This key will be used by the backend to generate executive summaries.</p>
+                      <p className="text-xs text-slate-500 mt-2">This key will be used by the backend to generate AI executive summaries.</p>
+                  </div>
+
+                  <div className="mb-8">
+                      <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">Default Report Engine</h4>
+                      <div className="flex gap-4">
+                        <select 
+                            value={reportType}
+                            onChange={(e) => setReportType(e.target.value)}
+                            className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                        >
+                            <option value="docx">Deterministic DOCX Template (Local)</option>
+                            <option value="gemini">Gemini AI Executive Summary (Cloud)</option>
+                        </select>
+                        <button 
+                            onClick={saveConfig}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+                        >
+                            Save
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-2">Choose whether the 'Report' tab generates a mathematical DOCX report or calls the Gemini AI for a summary.</p>
                   </div>
               </div>
           </div>
