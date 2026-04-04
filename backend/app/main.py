@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from pydantic import BaseModel
 import os
+import threading
 from datetime import datetime
 from docxtpl import DocxTemplate
 
@@ -12,6 +13,7 @@ from . import models, schemas, auth, database, tasks
 from .database import engine, get_db
 from fastapi.security import OAuth2PasswordRequestForm
 from .celery_app import celery_app
+from .integrations import send_webhook_alert
 from celery.result import AsyncResult
 from datetime import timedelta
 
@@ -198,6 +200,32 @@ def delete_mission(mission_id: int, db: Session = Depends(get_db), current_user:
     return {"status": "success"}
 
 
+def _trigger_webhook_if_needed(db, title, description, cvss):
+    if cvss is None:
+        return
+        
+    try:
+        threshold_conf = db.query(models.SystemConfig).filter(models.SystemConfig.key == "alert_cvss_threshold").first()
+        threshold = float(threshold_conf.value) if threshold_conf and threshold_conf.value else 9.0
+    except:
+        threshold = 9.0
+
+    if float(cvss) >= threshold:
+        discord_conf = db.query(models.SystemConfig).filter(models.SystemConfig.key == "webhook_discord").first()
+        slack_conf = db.query(models.SystemConfig).filter(models.SystemConfig.key == "webhook_slack").first()
+        teams_conf = db.query(models.SystemConfig).filter(models.SystemConfig.key == "webhook_teams").first()
+        
+        discord_url = discord_conf.value if discord_conf else None
+        slack_url = slack_conf.value if slack_conf else None
+        teams_url = teams_conf.value if teams_conf else None
+        
+        if discord_url:
+            threading.Thread(target=send_webhook_alert, args=(discord_url, "discord", title, description, cvss)).start()
+        if slack_url:
+            threading.Thread(target=send_webhook_alert, args=(slack_url, "slack", title, description, cvss)).start()
+        if teams_url:
+            threading.Thread(target=send_webhook_alert, args=(teams_url, "teams", title, description, cvss)).start()
+
 @app.put("/vulnerabilities/{vuln_id}", response_model=schemas.Vulnerability)
 def update_vulnerability(vuln_id: int, vuln_update: schemas.VulnerabilityUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     vuln = db.query(models.Vulnerability).join(models.Mission).filter(models.Vulnerability.id == vuln_id, models.Mission.user_id == current_user.id).first()
@@ -210,6 +238,10 @@ def update_vulnerability(vuln_id: int, vuln_update: schemas.VulnerabilityUpdate,
         
     db.commit()
     db.refresh(vuln)
+    
+    if "cvss" in update_data and vuln.cvss is not None:
+        _trigger_webhook_if_needed(db, title=vuln.title, description=vuln.description, cvss=vuln.cvss)
+        
     return vuln
 
 @app.delete("/vulnerabilities/{vuln_id}")

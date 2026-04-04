@@ -7,7 +7,7 @@ echo "  Deploying NAYT - Toolbox"
 echo "=================================================="
 
 # Ensure script is run from project root
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
 
 # Check Docker Installation
@@ -49,7 +49,8 @@ echo "[+] Using $DOCKER_COMPOSE_CMD"
 # Skipping to not break active sessions
 
 echo "[*] Cleaning up old containers (if any)..."
-$DOCKER_COMPOSE_CMD down 2>/dev/null
+$DOCKER_COMPOSE_CMD down --remove-orphans 2>/dev/null
+docker rm -f NAYT-redis NAYT-db NAYT-backend NAYT-frontend NAYT-worker 2>/dev/null
 
 echo "[*] Building and Starting NAYT services in detached mode..."
 $DOCKER_COMPOSE_CMD up --build -d

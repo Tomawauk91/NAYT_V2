@@ -7,6 +7,7 @@ class VulnerabilityBase(BaseModel):
     severity: str
     description: str
     evidence: Optional[str] = None
+    cvss: Optional[float] = None
     status: Optional[str] = "Open"
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -58,6 +59,7 @@ class MissionUpdate(BaseModel):
     name: Optional[str] = None
     target: Optional[str] = None
     status: Optional[str] = None
+    cvss: Optional[float] = None
     progress: Optional[int] = None
     client_id: Optional[int] = None # Important: can also use -1 or something if we want to remove client, but usually frontend sends null to unset
 
@@ -112,3 +114,4 @@ class VulnerabilityUpdate(BaseModel):
     severity: Optional[str] = None
     description: Optional[str] = None
     status: Optional[str] = None
+    cvss: Optional[float] = None

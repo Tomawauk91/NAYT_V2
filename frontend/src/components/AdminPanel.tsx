@@ -17,6 +17,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
   const [ips, setIps] = useState<IpRange[]>([]);
   const [apiKey, setApiKey] = useState('');
   const [reportType, setReportType] = useState('docx');
+  const [webhookDiscord, setWebhookDiscord] = useState("");
+  const [webhookTeams, setWebhookTeams] = useState("");
+  const [webhookSlack, setWebhookSlack] = useState("");
+  const [cvssThreshold, setCvssThreshold] = useState("9.0");
   
   useEffect(() => {
      if(activeTab === 'config') {
@@ -28,10 +32,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
       try {
           const keys = await Promise.all([
              toolsService.getConfig('gemini_api_key'),
-             toolsService.getConfig('report_type')
+             toolsService.getConfig('report_type'),
+             toolsService.getConfig('webhook_discord'),
+             toolsService.getConfig('webhook_slack'),
+             toolsService.getConfig('webhook_teams'),
+             toolsService.getConfig('alert_cvss_threshold')
           ]);
           setApiKey(keys[0].value || '');
           setReportType(keys[1].value || 'docx');
+          setWebhookDiscord(keys[2]?.value || '');
+          setWebhookSlack(keys[3]?.value || '');
+          setWebhookTeams(keys[4]?.value || '');
+          setCvssThreshold(keys[5]?.value || '9.0');
       } catch (e) {
           console.error(e);
       }
@@ -41,6 +53,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
       try {
           await toolsService.saveConfig('gemini_api_key', apiKey);
           await toolsService.saveConfig('report_type', reportType);
+          await toolsService.saveConfig('webhook_discord', webhookDiscord);
+          await toolsService.saveConfig('webhook_slack', webhookSlack);
+          await toolsService.saveConfig('webhook_teams', webhookTeams);
+          await toolsService.saveConfig('alert_cvss_threshold', cvssThreshold);
           notify('success', 'Configuration Saved');
       } catch (e) {
           notify('error', 'Failed to save config');
@@ -456,6 +472,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
                         </button>
                       </div>
                       <p className="text-xs text-slate-500 mt-2">Choose whether the 'Report' tab generates a mathematical DOCX report or calls the Gemini AI for a summary.</p>
+                  </div>
+
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-6 mt-8 border-t pt-8 border-slate-200 dark:border-slate-700">Webhook Integrations</h3>
+                  <div className="space-y-4">
+                      <div>
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Discord Webhook</label>
+                          <input type="text" value={webhookDiscord} onChange={(e) => setWebhookDiscord(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="https://discord.com/api/webhooks/..." />
+                      </div>
+                      <div>
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Slack Webhook</label>
+                          <input type="text" value={webhookSlack} onChange={(e) => setWebhookSlack(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="https://hooks.slack.com/services/..." />
+                      </div>
+                      <div>
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Microsoft Teams Webhook</label>
+                          <input type="text" value={webhookTeams} onChange={(e) => setWebhookTeams(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="https://yourdomain.webhook.office.com/webhookb2/..." />
+                      </div>
+                      <div>
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Alerting CVSS Threshold</label>
+                          <div className="flex gap-2">
+                              <input type="number" step="0.1" min="0" max="10" value={cvssThreshold} onChange={(e) => setCvssThreshold(e.target.value)} className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="9.0" />
+                              <button onClick={saveConfig} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">Save Webhooks</button>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-2">Any vulnerability reported manually or by the automated scanner with a CVSS score greater or equal to this threshold will trigger the webhooks.</p>
+                      </div>
                   </div>
               </div>
           </div>
