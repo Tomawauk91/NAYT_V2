@@ -313,7 +313,7 @@ def trigger_auto_scan(scan: schemas.AutoScanRequest, db: Session = Depends(get_d
     mission = db.query(models.Mission).filter(models.Mission.id == scan.mission_id).first()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
-    task = tasks.run_auto_scan_task.delay(scan.target, scan.tools, scan.port, scan.mission_id)
+    task = tasks.run_auto_scan_task.delay(scan.target, scan.tools, scan.port, scan.mission_id, current_user.username)
     
     db_task = models.ScanTask(id=task.id, mission_id=scan.mission_id, task_type='auto', tool="auto", command=str(scan.tools))
     db.add(db_task)
@@ -326,7 +326,7 @@ def trigger_custom_scan(scan: schemas.CustomCommandRequest, db: Session = Depend
     mission = db.query(models.Mission).filter(models.Mission.id == scan.mission_id).first()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
-    task = tasks.run_custom_command_task.delay(scan.command, scan.mission_id)
+    task = tasks.run_custom_command_task.delay(scan.command, scan.mission_id, current_user.username)
     
     db_task = models.ScanTask(id=task.id, mission_id=scan.mission_id, task_type='custom', tool="custom", command=scan.command)
     db.add(db_task)

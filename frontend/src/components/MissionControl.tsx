@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Mission, Vulnerability, Criticality, Status, Language } from '../types';
 import { generateExecutiveSummary } from '../services/geminiService';
 import { toolsService } from '../services/apiService';
-import { Play, Edit2, FileText, CheckCircle, AlertTriangle, Terminal as TerminalIcon, Eye, Search, Command, PlayCircle, Zap , X, Settings } from 'lucide-react';
+import { Play, Edit2, FileText, CheckCircle, AlertTriangle, Terminal as TerminalIcon, Eye, Search, Command, PlayCircle, Zap , X, Settings, User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { translations } from '../translations';
 
@@ -20,12 +20,14 @@ const stripAnsi = (str: string) => str.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{
 export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack, onEdit, notify, lang, userRole }) => {
   const t = translations[lang];
   const [customCLIInput, setCustomCLIInput] = useState('');
-  const [editingToolIdx, setEditingToolIdx] = useState<number | null>(null);
+  const [editingToolId, setEditingToolId] = useState<string | null>(null);
   const [editingToolCmd, setEditingToolCmd] = useState('');
   const [activeTab, setActiveTab] = useState<'overview' | 'actions' | 'findings' | 'report' | 'auto'>('overview');
   const [selectedVuln, setSelectedVuln] = useState<Vulnerability | null>(null);
   const [report, setReport] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [recentTasks, setRecentTasks] = useState<any[]>([]);
+  const [elapsedString, setElapsedString] = useState<string>("0m");
   
   // Terminal State
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
@@ -43,6 +45,36 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
   const customScrollRef = useRef<HTMLDivElement>(null);
   const customLastOutputRef = useRef<string>(""); 
   const isCustomScanRunningRef = useRef(false);
+
+  useEffect(() => {
+    const updateElapsedTime = () => {
+        if (!mission.created_at) {
+             setElapsedString("0m");
+             return;
+        }
+        const createdDate = new Date(mission.created_at);
+        // Fallback for Safari/Firefox dates if missing timezone Z
+        if (isNaN(createdDate.getTime())) {
+            setElapsedString("0m");
+            return;
+        }
+        
+        const diffMs = Date.now() - createdDate.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+        const hours = Math.floor(diffMins / 60);
+        const mins = diffMins % 60;
+        
+        if (hours > 0) {
+            setElapsedString(`${hours}h ${mins}m`);
+        } else {
+            setElapsedString(`${mins}m`);
+        }
+    };
+    
+    updateElapsedTime();
+    const interval = setInterval(updateElapsedTime, 60000);
+    return () => clearInterval(interval);
+  }, [mission.created_at]);
 
   // Auto-Scan Selection State
   const [selectedAutoTools, setSelectedAutoTools] = useState<string[]>([
@@ -131,6 +163,8 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                 };
                 return ws;
             };
+
+            setRecentTasks([...data.tasks].reverse().slice(0, 5));
 
             data.tasks.forEach((task: any) => {
                 const rawOutput = task.output || "";
@@ -255,7 +289,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
         const pollInterval = setInterval(async () => {
             // Check if user stopped it manually using Ref
             if (!isScanRunningRef.current) { 
-                 clearInterval(pollInterval);
+                 clearInterval(pollInterval); toolsService.getAllTasks(mission.id).then((d: any) => { if(d?.tasks) setRecentTasks([...d.tasks].reverse().slice(0, 5)) });
                  return;
             }
             
@@ -263,7 +297,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                 const statusData = await toolsService.getScanStatus(task_id);
                 
                 if (statusData.status === 'SUCCESS') {
-                    clearInterval(pollInterval);
+                    clearInterval(pollInterval); toolsService.getAllTasks(mission.id).then((d: any) => { if(d?.tasks) setRecentTasks([...d.tasks].reverse().slice(0, 5)) });
                     setIsCommandRunning(false);
                     setCurrentTaskId(null);
                     isScanRunningRef.current = false;
@@ -280,7 +314,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                          }
                     }
                 } else if (statusData.status === 'FAILURE') {
-                    clearInterval(pollInterval);
+                    clearInterval(pollInterval); toolsService.getAllTasks(mission.id).then((d: any) => { if(d?.tasks) setRecentTasks([...d.tasks].reverse().slice(0, 5)) });
                     setIsCommandRunning(false);
                     setCurrentTaskId(null);
                     isScanRunningRef.current = false;
@@ -365,13 +399,13 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
 
         const pollInterval = setInterval(async () => {
             if (!isCustomScanRunningRef.current) { 
-                 clearInterval(pollInterval);
+                 clearInterval(pollInterval); toolsService.getAllTasks(mission.id).then((d: any) => { if(d?.tasks) setRecentTasks([...d.tasks].reverse().slice(0, 5)) });
                  return;
             }
             try {
                 const statusData = await toolsService.getScanStatus(task_id);
                 if (statusData.status === 'SUCCESS') {
-                    clearInterval(pollInterval);
+                    clearInterval(pollInterval); toolsService.getAllTasks(mission.id).then((d: any) => { if(d?.tasks) setRecentTasks([...d.tasks].reverse().slice(0, 5)) });
                     setIsCustomCommandRunning(false);
                     setCurrentCustomTaskId(null);
                     isCustomScanRunningRef.current = false;
@@ -386,7 +420,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                          }
                     }
                 } else if (statusData.status === 'FAILURE') {
-                    clearInterval(pollInterval);
+                    clearInterval(pollInterval); toolsService.getAllTasks(mission.id).then((d: any) => { if(d?.tasks) setRecentTasks([...d.tasks].reverse().slice(0, 5)) });
                     setIsCustomCommandRunning(false);
                     setCurrentCustomTaskId(null);
                     isCustomScanRunningRef.current = false;
@@ -436,7 +470,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
 
         const pollInterval = setInterval(async () => {
             if (!isScanRunningRef.current) {
-                 clearInterval(pollInterval);
+                 clearInterval(pollInterval); toolsService.getAllTasks(mission.id).then((d: any) => { if(d?.tasks) setRecentTasks([...d.tasks].reverse().slice(0, 5)) });
                  return;
             }
 
@@ -444,7 +478,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                 const statusData = await toolsService.getScanStatus(task_id);
                 
                 if (statusData.status === 'SUCCESS') {
-                    clearInterval(pollInterval);
+                    clearInterval(pollInterval); toolsService.getAllTasks(mission.id).then((d: any) => { if(d?.tasks) setRecentTasks([...d.tasks].reverse().slice(0, 5)) });
                     setIsCommandRunning(false);
                     setCurrentTaskId(null);
                     isScanRunningRef.current = false;
@@ -461,7 +495,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                          }
                     }
                 } else if (statusData.status === 'FAILURE') {
-                    clearInterval(pollInterval);
+                    clearInterval(pollInterval); toolsService.getAllTasks(mission.id).then((d: any) => { if(d?.tasks) setRecentTasks([...d.tasks].reverse().slice(0, 5)) });
                     setIsCommandRunning(false);
                     setCurrentTaskId(null);
                     isScanRunningRef.current = false;
@@ -627,34 +661,56 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                          </div>
                          <div className="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-lg">
                             <p className="text-slate-500 dark:text-slate-400 text-xs uppercase">{t.elapsedTime}</p>
-                            <p className="text-2xl font-bold text-slate-900 dark:text-white">4h 23m</p>
+                            <p className="text-2xl font-bold text-slate-900 dark:text-white">{elapsedString}</p>
                          </div>
                     </div>
                 </div>
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 transition-colors">
                     <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">{t.recentActivity}</h3>
                     <div className="space-y-4">
-                        <div className="flex items-start gap-3 text-sm">
-                            <div className="w-2 h-2 rounded-full bg-emerald-400 mt-1.5 animate-pulse"></div>
-                            <div>
-                                <p className="text-slate-700 dark:text-slate-300">Port Scan completed on 192.168.1.15</p>
-                                <p className="text-slate-500 text-xs">10 minutes ago</p>
-                            </div>
-                        </div>
-                        <div className="flex items-start gap-3 text-sm">
-                            <div className="w-2 h-2 rounded-full bg-yellow-400 mt-1.5 animate-pulse"></div>
-                            <div>
-                                <p className="text-slate-700 dark:text-slate-300">Potential vulnerability detected: Weak SSL Cipher</p>
-                                <p className="text-slate-500 text-xs">25 minutes ago</p>
-                            </div>
-                        </div>
-                         <div className="flex items-start gap-3 text-sm">
-                            <div className="w-2 h-2 rounded-full bg-blue-400 mt-1.5 animate-pulse"></div>
-                            <div>
-                                <p className="text-slate-700 dark:text-slate-300">Reconnaissance phase started</p>
-                                <p className="text-slate-500 text-xs">1 hour ago</p>
-                            </div>
-                        </div>
+                        {recentTasks.length === 0 ? (
+                             <p className="text-sm text-slate-500">{t.noRecentActivity || "No recent activity"}</p>
+                        ) : (
+                             recentTasks.map((task: any, idx: number) => {
+                                  // Formatting the date nicely relative
+                                  const getRelativeTime = (isoString?: string) => {
+                                      if (!isoString) return "Recently";
+                                      const d = new Date(isoString);
+                                      if (isNaN(d.getTime())) return "Recently";
+                                      const diffMins = Math.floor((Date.now() - d.getTime()) / 60000);
+                                      if (diffMins < 1) return "Just now";
+                                      if (diffMins < 60) return `${diffMins} minutes ago`;
+                                      const diffHours = Math.floor(diffMins / 60);
+                                      if (diffHours < 24) return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
+                                      const diffDays = Math.floor(diffHours / 24);
+                                      return `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
+                                  };
+
+                                  const dotColor = task.status === "SUCCESS" ? "bg-emerald-400" :
+                                                   task.status === "FAILURE" ? "bg-red-400" :
+                                                   task.status === "REVOKED" ? "bg-gray-400" :
+                                                   "bg-blue-400 animate-pulse";
+
+                                  let title = "Unknown task";
+                                  if (task.task_type === 'auto') title = `Autonomous scan completed on ${task.tool}`;
+                                  else if (task.task_type === 'custom') title = `Custom command executed: ${task.command}`;
+                                  else title = `Task completed: ${task.tool || task.command}`;
+
+                                  if (task.status === "PROGRESS") title = `Running: ${task.tool || task.command}`;
+                                  else if (task.status === "FAILURE") title = `Failed: ${task.tool || task.command}`;
+                                  else if (task.status === "REVOKED") title = `Stopped: ${task.tool || task.command}`;
+
+                                  return (
+                                       <div key={idx} className="flex items-start gap-3 text-sm">
+                                           <div className={`w-2 h-2 rounded-full ${dotColor} mt-1.5`}></div>
+                                           <div>
+                                               <p className="text-slate-700 dark:text-slate-300">{title}</p>
+                                               <p className="text-slate-500 text-xs">{getRelativeTime(task.created_at)}</p>
+                                           </div>
+                                       </div>
+                                  );
+                             })
+                        )}
                     </div>
                 </div>
              </div>
@@ -739,7 +795,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                                 <div className="space-y-3">
                                 {group.tools.map((tool, idx) => (
                             <div key={idx} className="w-full bg-slate-50 dark:bg-slate-700 p-4 rounded-lg flex items-center justify-between group transition-all">
-                                {editingToolIdx === idx ? (
+                                {editingToolId === `${gIdx}-${idx}` ? (
                                     <div className="flex-1 mr-4">
                                         <input 
                                             autoFocus
@@ -749,7 +805,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter' && !isCommandRunning) {
                                                     runCommand(tool.name, editingToolCmd);
-                                                    setEditingToolIdx(null);
+                                                    setEditingToolId(null);
                                                 }
                                             }}
                                             className="w-full bg-slate-100 dark:bg-slate-900 border border-blue-500 rounded px-3 py-2 text-sm focus:outline-none dark:text-green-400 font-mono shadow-sm"
@@ -762,14 +818,14 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                                     </div>
                                 )}
                                 <div className="flex gap-2 items-center">
-                                    {editingToolIdx === idx ? (
+                                    {editingToolId === `${gIdx}-${idx}` ? (
                                         <>
-                                            <button onClick={(e) => { e.stopPropagation(); setEditingToolIdx(null); }} className="text-slate-500 hover:text-red-500 px-2 py-1 text-xs">{t.cancel}</button>
+                                            <button onClick={(e) => { e.stopPropagation(); setEditingToolId(null); }} className="text-slate-500 hover:text-red-500 px-2 py-1 text-xs">{t.cancel}</button>
                                             <button 
                                                 onClick={(e) => { 
                                                     e.stopPropagation();
                                                     runCommand(tool.name, editingToolCmd); 
-                                                    setEditingToolIdx(null); 
+                                                    setEditingToolId(null); 
                                                 }}
                                                 disabled={isCommandRunning}
                                                 className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md text-xs flex items-center gap-1 shadow-sm"
@@ -780,7 +836,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                                     ) : (
                                         <>
                                             <button 
-                                                onClick={(e) => { e.stopPropagation(); setEditingToolCmd(tool.cmd); setEditingToolIdx(idx); }}
+                                                onClick={(e) => { e.stopPropagation(); setEditingToolCmd(tool.cmd); setEditingToolId(`${gIdx}-${idx}`); }}
                                                 title={t.editCmd}
                                                 className="text-slate-400 hover:text-blue-500 p-1.5 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
                                             >
@@ -1175,6 +1231,12 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                                 {selectedVuln.severity || selectedVuln.criticality}
                             </span>
                         </h3>
+                        {selectedVuln.executed_by && (
+                           <div className="flex items-center gap-1.5 mt-2 text-xs text-slate-400 font-mono">
+                                <User size={12} className="text-blue-400" />
+                                <span>{t.executedBy || "By"}: <span className="text-slate-200">{selectedVuln.executed_by}</span></span>
+                           </div>
+                        )}
                     </div>
                     <button 
                         onClick={() => setSelectedVuln(null)} 
@@ -1186,7 +1248,15 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                 
                 {/* Body - Pure Terminal Look */}
                 <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar bg-[#0a0f1c] text-slate-200 font-mono text-sm leading-relaxed whitespace-pre-wrap break-all border-t border-b border-slate-800/50 shadow-inner">
-                    {selectedVuln.evidence ? selectedVuln.evidence : selectedVuln.description}
+                    <div className="mb-4 pb-4 border-b border-slate-800/50">
+                        {selectedVuln.description}
+                    </div>
+                    {selectedVuln.evidence && (
+                        <div>
+                            <span className="text-slate-500 font-semibold mb-2 block">{t.logs || "Logs / Evidence"}:</span>
+                            {selectedVuln.evidence}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

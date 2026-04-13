@@ -173,7 +173,7 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
         return {"status": "error", "output": str(e)}
 
 @celery_app.task(bind=True)
-def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port: str = "", mission_id: int = None):
+def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port: str = "", mission_id: int = None, executed_by: str = "Automated Scan"):
     """
     Runs a defined sequence of tools against a target automatically.
     Adapts based on Nmap output.
@@ -426,12 +426,12 @@ def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port
             
             exists = db.query(Vulnerability).filter_by(mission_id=mission_id, title=title).first()
             if not exists:
-                v = Vulnerability(title=title, severity="Info", description=desc, evidence=overall_output, mission_id=mission_id, executed_by="Autopilot")
+                v = Vulnerability(title=title, severity="Info", description=desc, evidence=overall_output, mission_id=mission_id, executed_by=executed_by)
                 db.add(v)
             else:
                 exists.description = desc
                 exists.evidence = overall_output
-                exists.executed_by = "Autopilot"
+                exists.executed_by = executed_by
             
             db.commit()
             db.close()
@@ -446,7 +446,7 @@ def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port
     }
 
 @celery_app.task(bind=True)
-def run_custom_command_task(self, command: str, mission_id: int = None):
+def run_custom_command_task(self, command: str, mission_id: int = None, executed_by: str = "Automated Scan"):
     logger.info(f"Executing custom command: {command}")
     self.update_state(state='PROGRESS', meta={'cmd': command, 'output': 'Starting custom command...'})
     try:

@@ -54,6 +54,8 @@ export interface Mission {
   client_id?: number;
   client?: Client;
   vulnerabilities: Vulnerability[];
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface User {
