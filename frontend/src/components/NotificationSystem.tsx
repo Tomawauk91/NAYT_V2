@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle, XCircle, X } from 'lucide-react';
+import { CheckCircle, XCircle, Info, X } from 'lucide-react';
 import { Notification } from '../types';
 
 interface NotificationSystemProps {
@@ -36,12 +36,14 @@ const Toast: React.FC<{ note: Notification; onDismiss: () => void }> = ({ note, 
       <div className="p-4 flex items-start gap-3">
         {note.type === 'success' ? (
           <CheckCircle className="text-emerald-500 shrink-0" size={24} />
+        ) : note.type === 'info' ? (
+          <Info className="text-blue-500 shrink-0" size={24} />
         ) : (
           <XCircle className="text-red-500 shrink-0" size={24} />
         )}
         <div className="flex-1">
-          <h4 className={`font-semibold text-sm ${note.type === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>
-            {note.type === 'success' ? 'Success' : 'Error'}
+          <h4 className={`font-semibold text-sm ${note.type === 'success' ? 'text-emerald-400' : note.type === 'info' ? 'text-blue-400' : 'text-red-400'}`}>
+            {note.type === 'success' ? 'Success' : note.type === 'info' ? 'Info' : 'Error'}
           </h4>
           <p className="text-slate-300 text-sm mt-1">{note.message}</p>
         </div>
@@ -53,7 +55,7 @@ const Toast: React.FC<{ note: Notification; onDismiss: () => void }> = ({ note, 
       <div className="w-full h-1 bg-slate-900/50 absolute bottom-0 left-0">
         <div 
           className={`h-full transition-all duration-75 ease-linear ${
-            note.type === 'success' ? 'bg-emerald-500' : 'bg-red-500'
+            note.type === 'success' ? 'bg-emerald-500' : note.type === 'info' ? 'bg-blue-500' : 'bg-red-500'
           }`}
           style={{ width: `${progress}%` }}
         />

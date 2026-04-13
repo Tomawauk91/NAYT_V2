@@ -223,7 +223,7 @@ export default function App() {
     }
   };
 
-  const handlePasswordChange = (e: React.FormEvent) => {
+  const handlePasswordChange = async (e: React.FormEvent) => {
       e.preventDefault();
       if (newPassword !== confirmPassword) {
           addNotification('error', t.pwMismatch);
@@ -234,14 +234,19 @@ export default function App() {
           return;
       }
       if (user) {
-          const updatedUser = { ...user, password: newPassword, isTempPassword: false };
-          const updatedUsers = users.map(u => u.id === user.id ? updatedUser : u);
-          setUsers(updatedUsers);
-          setUser(updatedUser);
-          setShowProfile(false);
-          setNewPassword('');
-          setConfirmPassword('');
-          addNotification('success', t.pwUpdated);
+          try {
+              await toolsService.resetPassword(user.id, newPassword);
+              const updatedUser = { ...user, password: newPassword, isTempPassword: false };
+              const updatedUsers = users.map(u => u.id === user.id ? updatedUser : u);
+              setUsers(updatedUsers);
+              setUser(updatedUser);
+              setShowProfile(false);
+              setNewPassword('');
+              setConfirmPassword('');
+              addNotification('success', t.pwUpdated);
+          } catch (e: any) {
+              addNotification('error', 'Failed to change password on server');
+          }
       }
   };
 

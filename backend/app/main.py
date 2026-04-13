@@ -124,7 +124,7 @@ def reset_password(user_id: int, reset: PasswordReset, db: Session = Depends(get
 # --- Client Routes ---
 @app.get("/clients", response_model=List[schemas.Client])
 def read_clients(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    return db.query(models.Client).filter(models.Client.user_id == current_user.id).offset(skip).limit(limit).all()
+    return db.query(models.Client).offset(skip).limit(limit).all()
 
 @app.post("/clients", response_model=schemas.Client)
 def create_client(client: schemas.ClientCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
@@ -138,7 +138,7 @@ def create_client(client: schemas.ClientCreate, db: Session = Depends(get_db), c
 
 @app.delete("/clients/{client_id}")
 def delete_client(client_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    client = db.query(models.Client).filter(models.Client.id == client_id, models.Client.user_id == current_user.id).first()
+    client = db.query(models.Client).filter(models.Client.id == client_id).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     db.delete(client)
@@ -147,7 +147,7 @@ def delete_client(client_id: int, db: Session = Depends(get_db), current_user: m
 
 @app.put("/clients/{client_id}", response_model=schemas.Client)
 def update_client(client_id: int, client_update: schemas.ClientUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    client = db.query(models.Client).filter(models.Client.id == client_id, models.Client.user_id == current_user.id).first()
+    client = db.query(models.Client).filter(models.Client.id == client_id).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     
@@ -162,7 +162,7 @@ def update_client(client_id: int, client_update: schemas.ClientUpdate, db: Sessi
 # --- Mission Routes ---
 @app.get("/missions", response_model=List[schemas.Mission])
 def read_missions(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    missions = db.query(models.Mission).filter(models.Mission.user_id == current_user.id).offset(skip).limit(limit).all()
+    missions = db.query(models.Mission).offset(skip).limit(limit).all()
     return missions
 
 @app.post("/missions", response_model=schemas.Mission)
@@ -177,7 +177,7 @@ def create_mission(mission: schemas.MissionCreate, db: Session = Depends(get_db)
 
 @app.put("/missions/{mission_id}", response_model=schemas.Mission)
 def update_mission(mission_id: int, mission_update: schemas.MissionUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    mission = db.query(models.Mission).filter(models.Mission.id == mission_id, models.Mission.user_id == current_user.id).first()
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
     
@@ -192,7 +192,7 @@ def update_mission(mission_id: int, mission_update: schemas.MissionUpdate, db: S
 
 @app.delete("/missions/{mission_id}")
 def delete_mission(mission_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    mission = db.query(models.Mission).filter(models.Mission.id == mission_id, models.Mission.user_id == current_user.id).first()
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
     db.delete(mission)
@@ -228,7 +228,7 @@ def _trigger_webhook_if_needed(db, title, description, cvss):
 
 @app.put("/vulnerabilities/{vuln_id}", response_model=schemas.Vulnerability)
 def update_vulnerability(vuln_id: int, vuln_update: schemas.VulnerabilityUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    vuln = db.query(models.Vulnerability).join(models.Mission).filter(models.Vulnerability.id == vuln_id, models.Mission.user_id == current_user.id).first()
+    vuln = db.query(models.Vulnerability).join(models.Mission).filter(models.Vulnerability.id == vuln_id).first()
     if not vuln:
         raise HTTPException(status_code=404, detail="Vulnerability not found")
     
@@ -246,7 +246,7 @@ def update_vulnerability(vuln_id: int, vuln_update: schemas.VulnerabilityUpdate,
 
 @app.delete("/vulnerabilities/{vuln_id}")
 def delete_vulnerability(vuln_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    vuln = db.query(models.Vulnerability).join(models.Mission).filter(models.Vulnerability.id == vuln_id, models.Mission.user_id == current_user.id).first()
+    vuln = db.query(models.Vulnerability).join(models.Mission).filter(models.Vulnerability.id == vuln_id).first()
     if not vuln:
         raise HTTPException(status_code=404, detail="Vulnerability not found")
     
@@ -257,7 +257,7 @@ def delete_vulnerability(vuln_id: int, db: Session = Depends(get_db), current_us
 # --- Scan Routes ---
 @app.post("/scan")
 def trigger_scan(scan: schemas.ScanRequest, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    mission = db.query(models.Mission).filter(models.Mission.id == scan.mission_id, models.Mission.user_id == current_user.id).first()
+    mission = db.query(models.Mission).filter(models.Mission.id == scan.mission_id).first()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
     
@@ -310,7 +310,7 @@ def list_tools(current_user: models.User = Depends(auth.get_current_user)):
 
 @app.post("/scan/auto")
 def trigger_auto_scan(scan: schemas.AutoScanRequest, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    mission = db.query(models.Mission).filter(models.Mission.id == scan.mission_id, models.Mission.user_id == current_user.id).first()
+    mission = db.query(models.Mission).filter(models.Mission.id == scan.mission_id).first()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
     task = tasks.run_auto_scan_task.delay(scan.target, scan.tools, scan.port, scan.mission_id)
@@ -323,7 +323,7 @@ def trigger_auto_scan(scan: schemas.AutoScanRequest, db: Session = Depends(get_d
 
 @app.post("/scan/custom")
 def trigger_custom_scan(scan: schemas.CustomCommandRequest, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    mission = db.query(models.Mission).filter(models.Mission.id == scan.mission_id, models.Mission.user_id == current_user.id).first()
+    mission = db.query(models.Mission).filter(models.Mission.id == scan.mission_id).first()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
     task = tasks.run_custom_command_task.delay(scan.command, scan.mission_id)
@@ -338,7 +338,7 @@ def trigger_custom_scan(scan: schemas.CustomCommandRequest, db: Session = Depend
 
 @app.get("/missions/{mission_id}/tasks")
 def get_mission_tasks(mission_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    mission = db.query(models.Mission).filter(models.Mission.id == mission_id, models.Mission.user_id == current_user.id).first()
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
         
@@ -372,7 +372,7 @@ def get_mission_tasks(mission_id: int, db: Session = Depends(get_db), current_us
 
 @app.delete("/missions/{mission_id}/tasks")
 def clear_mission_tasks(mission_id: int, task_type: str = None, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    mission = db.query(models.Mission).filter(models.Mission.id == mission_id, models.Mission.user_id == current_user.id).first()
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
         
@@ -389,7 +389,7 @@ def clear_mission_tasks(mission_id: int, task_type: str = None, db: Session = De
 
 def get_mission_active_tasks(mission_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
     # Verify mission ownership
-    mission = db.query(models.Mission).filter(models.Mission.id == mission_id, models.Mission.user_id == current_user.id).first()
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
         
@@ -461,7 +461,7 @@ def generate_report(mission_id: int, db: Session = Depends(get_db), current_user
          raise HTTPException(status_code=400, detail="Gemini API Key not configured")
          
     # Fetch Mission Data
-    mission = db.query(models.Mission).filter(models.Mission.id == mission_id, models.Mission.user_id == current_user.id).first()
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
     if not mission:
          raise HTTPException(status_code=404, detail="Mission not found")
          
@@ -582,7 +582,7 @@ SEVERITY_WEIGHTS = {
 
 @app.get("/missions/{mission_id}/report", response_class=FileResponse)
 def generate_mission_report(mission_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    mission = db.query(models.Mission).filter(models.Mission.id == mission_id, models.Mission.user_id == current_user.id).first()
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
 
