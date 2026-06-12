@@ -21,6 +21,7 @@ services:
     volumes:
       - ./backend/app:/app/app
       - ./backend/reports:/app/reports
+      - scan_uploads:/app/uploads
     environment:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=postgresql://user:password@db/pentestdb
@@ -42,6 +43,8 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=postgresql://user:password@db/pentestdb
+    volumes:
+      - scan_uploads:/app/uploads
     cap_add:
       - NET_ADMIN
       - NET_RAW
@@ -66,3 +69,4 @@ services:
 
 volumes:
   postgres_data:
+  scan_uploads:

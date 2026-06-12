@@ -188,11 +188,11 @@ export const translations = {
     client: "Client",
 
     // File Scan
-    fileScanTab: "File Scan",
-    fileScanTitle: "File Malware Scan",
-    fileScanDesc: "Upload a file to scan it with the ClamAV / VirusTotal backend pipeline. Results are saved to the mission findings.",
+    fileScanTab: "VirusTotal",
+    fileScanTitle: "VirusTotal Scan",
+    fileScanDesc: "Upload a file to analyze it with VirusTotal. Results are saved to mission findings.",
     chooseFile: "Choose File",
-    startScan: "Scan File",
+    startScan: "Scan With VirusTotal",
     scanning: "Scanning...",
     noFileSelected: "No file selected.",
     fileScanStarted: "File scan started.",
@@ -388,11 +388,11 @@ export const translations = {
     client: "Client",
 
     // File Scan
-    fileScanTab: "Scan Fichier",
-    fileScanTitle: "Scan Malware de Fichier",
-    fileScanDesc: "Téléversez un fichier pour le scanner via le pipeline ClamAV / VirusTotal du backend. Les résultats sont enregistrés dans les findings de la mission.",
+    fileScanTab: "VirusTotal",
+    fileScanTitle: "Scan VirusTotal",
+    fileScanDesc: "Téléversez un fichier pour l'analyser avec VirusTotal. Les résultats sont enregistrés dans les findings de la mission.",
     chooseFile: "Choisir un Fichier",
-    startScan: "Scanner le Fichier",
+    startScan: "Scanner avec VirusTotal",
     scanning: "Scan en cours...",
     noFileSelected: "Aucun fichier sélectionné.",
     fileScanStarted: "Scan fichier démarré.",

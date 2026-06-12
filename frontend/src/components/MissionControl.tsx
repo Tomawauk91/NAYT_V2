@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Mission, Vulnerability, Criticality, Status, Language } from '../types';
-import { generateExecutiveSummary } from '../services/geminiService';
 import { toolsService } from '../services/apiService';
 import { Play, Edit2, FileText, CheckCircle, AlertTriangle, Terminal as TerminalIcon, Eye, Search, Command, PlayCircle, Zap , X, Settings, User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -51,15 +50,6 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
   const [fileScanOutput, setFileScanOutput] = useState<string[]>([]);
   const [isFileScanRunning, setIsFileScanRunning] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-    const BONUS_TOOLS = [
-        { name: 'ClamAV', desc: 'Virus / Web Shell Scanner', cmd: 'clamscan -r /app/backend/app --max-filesize=50M --max-scansize=100M' },
-        { name: 'VirusTotal API', desc: 'Check Suspicious Hashes', cmd: 'vt file scan /app/backend/requirements.txt' },
-        { name: 'Cuckoo Sandbox', desc: 'Analyze suspicious malware', cmd: 'cuckoo submit /app/backend/requirements.txt' },
-        { name: 'Acunetix', desc: 'Web Vuln Scan', cmd: `acunetix --scan http://${mission.target}${targetPort ? ':' + targetPort : ''}` },
-        { name: 'Nessus CLI', desc: 'Infra Vuln Scan', cmd: `nessus-cli --target ${mission.target}` },
-        { name: 'Dependency-Check', desc: 'Dependency Checker', cmd: 'dependency-check --project NAYT_SaaS --scan . --log ./dep-check.log' },
-    ];
 
   useEffect(() => {
     const updateElapsedTime = () => {
@@ -552,43 +542,6 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
     }
   };
 
-    const runBonusTool = async (toolName: string, command: string) => {
-        if (isFileScanRunning) return;
-        setIsFileScanRunning(true);
-        setFileScanOutput(prev => [...prev, `root@pentest-box:~# ${command}`]);
-        try {
-            const tool = command.trim().split(' ')[0].toLowerCase();
-            const options = command.trim().substring(tool.length).trim();
-            const { task_id } = await toolsService.runScan(tool, mission.target, options, mission.id);
-            setFileScanOutput(prev => [...prev, `[+] Task submitted with ID: ${task_id}`]);
-
-            const poll = setInterval(async () => {
-                try {
-                    const status = await toolsService.getScanStatus(task_id);
-                    if (status.status === 'SUCCESS') {
-                        clearInterval(poll);
-                        setIsFileScanRunning(false);
-                        const out = status.result?.output ?? 'No output.';
-                        setFileScanOutput(prev => [...prev, ...out.split('\n')]);
-                        notify('success', `${toolName} finished.`);
-                    } else if (status.status === 'FAILURE') {
-                        clearInterval(poll);
-                        setIsFileScanRunning(false);
-                        setFileScanOutput(prev => [...prev, `[!] ${toolName} failed.`]);
-                        notify('error', `${toolName} failed.`);
-                    }
-                } catch {
-                    clearInterval(poll);
-                    setIsFileScanRunning(false);
-                }
-            }, 2500);
-        } catch (e: any) {
-            setIsFileScanRunning(false);
-            setFileScanOutput(prev => [...prev, `[!] Failed to start ${toolName}: ${e.message}`]);
-            notify('error', `Failed to start ${toolName}.`);
-        }
-    };
-
   const [reportEngine, setReportEngine] = useState('docx');
 
   useEffect(() => {
@@ -677,7 +630,7 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
           { id: 'actions', label: t.commandCenter },
           { id: 'auto', label: 'Auto-Pilot' },
             { id: 'custom', label: t.customCLI || 'Custom CLI' },
-            { id: 'filescan', label: t.fileScanTab || 'File Scan' },
+                        { id: 'filescan', label: t.fileScanTab || 'VirusTotal' },
           { id: 'findings', label: t.findingsLog },
           { id: 'report', label: reportEngine === 'docx' ? 'DOCX Report' : t.aiReport }
         ].filter(tab => !((userRole === 'Viewer' || userRole === 'viewer' || userRole === 'VIEWER') && (tab.id === 'actions' || tab.id === 'custom' || tab.id === 'auto'))).map((tab) => (
@@ -1163,10 +1116,10 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
             <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 transition-colors">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
                 <Search size={20} className="text-violet-500" />
-                {t.fileScanTitle || 'File Malware Scan'}
+                                {t.fileScanTitle || 'VirusTotal Scan'}
               </h3>
               <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                {t.fileScanDesc || 'Upload a file to scan it with ClamAV / VirusTotal backend pipeline.'}
+                                {t.fileScanDesc || 'Upload a file to scan it with VirusTotal and store findings in this mission.'}
               </p>
               <div className="flex gap-3 items-center flex-wrap">
                 <label className="flex items-center gap-2 cursor-pointer bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-700 hover:bg-violet-100 dark:hover:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-medium px-4 py-2 rounded-lg transition-colors text-sm">
@@ -1193,20 +1146,35 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                     try {
                       const { task_id } = await toolsService.scanFile(fileToScan, Number(mission.id));
                       setFileScanOutput(prev => [...prev, `[+] Task ID: ${task_id}. Scanning...`]);
+                                            let lastProgressOutput = '';
                       const poll = setInterval(async () => {
                         try {
                           const status = await toolsService.getScanStatus(task_id);
+                                                    if (status.status === 'PROGRESS') {
+                                                        const current = status.result?.output ?? '';
+                                                        if (current && current !== lastProgressOutput) {
+                                                            const newPart = current.startsWith(lastProgressOutput)
+                                                                ? current.substring(lastProgressOutput.length)
+                                                                : current;
+                                                            const lines = newPart.split('\n').filter((l: string) => l.trim() !== '');
+                                                            if (lines.length > 0) {
+                                                                setFileScanOutput(prev => [...prev, ...lines]);
+                                                            }
+                                                            lastProgressOutput = current;
+                                                        }
+                                                        return;
+                                                    }
                           if (status.status === 'SUCCESS') {
                             clearInterval(poll);
                             setIsFileScanRunning(false);
                             const out = status.result?.output ?? 'No output.';
                             setFileScanOutput(prev => [...prev, ...out.split('\n')]);
-                            notify('success', 'File scan completed.');
+                                                        notify('success', 'VirusTotal scan completed.');
                           } else if (status.status === 'FAILURE') {
                             clearInterval(poll);
                             setIsFileScanRunning(false);
                             setFileScanOutput(prev => [...prev, '[!] Scan failed.']);
-                            notify('error', 'File scan failed.');
+                                                        notify('error', 'VirusTotal scan failed.');
                           }
                         } catch { clearInterval(poll); setIsFileScanRunning(false); }
                       }, 3000);
@@ -1224,29 +1192,9 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
               </div>
             </div>
 
-                        <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 transition-colors">
-                            <h4 className="text-base font-semibold text-slate-900 dark:text-white mb-3">Bonus Tools</h4>
-                            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                                Advanced tools are available only in this tab, as requested.
-                            </p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {BONUS_TOOLS.map((tool) => (
-                                    <button
-                                        key={tool.name}
-                                        disabled={isFileScanRunning}
-                                        onClick={() => runBonusTool(tool.name, tool.cmd)}
-                                        className="text-left bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-violet-400 dark:hover:border-violet-600 rounded-lg p-3 transition-colors disabled:opacity-50"
-                                    >
-                                        <div className="text-sm font-semibold text-slate-900 dark:text-white">{tool.name}</div>
-                                        <div className="text-xs text-slate-500 dark:text-slate-400">{tool.desc}</div>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
             {fileScanOutput.length > 0 && (
               <div className="bg-slate-950 rounded-xl border border-slate-800 p-4 font-mono text-sm max-h-80 overflow-y-auto">
-                <div className="text-slate-500 mb-2"># ClamAV / VT Scan Output</div>
+                <div className="text-slate-500 mb-2"># VirusTotal Scan Output</div>
                 {fileScanOutput.map((line, idx) => (
                   <div key={idx} className={`mb-1 ${line.startsWith('[!]') ? 'text-yellow-400' : line.startsWith('[+]') ? 'text-emerald-400' : 'text-slate-300'}`}>
                     {line}

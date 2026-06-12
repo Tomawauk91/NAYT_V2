@@ -1,0 +1,14 @@
+.git
+.gitignore
+.DS_Store
+node_modules
+**/node_modules
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+backend/reports
+frontend/dist
+docs
+pdf_content.txt
+scripts

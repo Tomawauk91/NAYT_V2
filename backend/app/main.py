@@ -375,7 +375,7 @@ async def trigger_file_scan(
         raise HTTPException(status_code=404, detail="Mission not found")
 
     max_upload_size = int(os.getenv("MAX_UPLOAD_SIZE_BYTES", str(50 * 1024 * 1024)))
-    upload_dir = "/tmp/nayt_uploads"
+    upload_dir = os.getenv("UPLOAD_DIR", "/app/uploads")
     os.makedirs(upload_dir, exist_ok=True)
 
     safe_filename = os.path.basename(file.filename or "uploaded.bin")
@@ -885,7 +885,9 @@ def generate_mission_report(mission_id: int, db: Session = Depends(get_db), curr
             "severity": v.severity or "Info",
             "cvss": str(cvss),
             "status": v.status or "Open",
-            "description": v.description or "No description",
+            "description": (v.description or "No description") + f"\n\nCVE: {v.cve or 'N/A'}\nMITRE ATT&CK: {v.mitre_attack or 'N/A'}",
+            "cve": v.cve or "N/A",
+            "mitre_attack": v.mitre_attack or "N/A",
             "evidence": v.evidence or ""
         })
 

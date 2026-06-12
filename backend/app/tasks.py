@@ -8,6 +8,7 @@ import json
 import os
 import re
 import requests
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +34,12 @@ def get_system_config_value(key: str) -> str:
             pass
 
 
-def vt_scan_file_via_api(file_path: str, api_key: str) -> tuple[bool, str]:
-    """Upload a file to VirusTotal API and return (success, output)."""
+def vt_scan_file_via_api(file_path: str, api_key: str) -> tuple[bool, str, str]:
+    """Upload a file to VirusTotal API and return (success, output, analysis_id)."""
     if not os.path.exists(file_path):
-        return False, f"[!] File not found: {file_path}"
+        return False, f"[!] File not found: {file_path}", ""
     if not api_key:
-        return False, "[!] VirusTotal API key is missing."
+        return False, "[!] VirusTotal API key is missing.", ""
 
     url = "https://www.virustotal.com/api/v3/files"
     headers = {"x-apikey": api_key}
@@ -53,7 +54,7 @@ def vt_scan_file_via_api(file_path: str, api_key: str) -> tuple[bool, str]:
             return False, (
                 f"[!] VirusTotal API error: HTTP {resp.status_code}\n"
                 f"{body}"
-            )
+            ), ""
 
         data = resp.json() if resp.content else {}
         analysis_id = data.get("data", {}).get("id")
@@ -61,12 +62,98 @@ def vt_scan_file_via_api(file_path: str, api_key: str) -> tuple[bool, str]:
             return True, (
                 "[+] VirusTotal file upload accepted.\n"
                 f"Analysis ID: {analysis_id}\n"
-                "Use VT UI/API to fetch final verdict once analysis completes."
-            )
+                "[i] Waiting for final VirusTotal verdict..."
+            ), analysis_id
 
-        return True, "[+] VirusTotal file upload accepted."
+        return True, "[+] VirusTotal file upload accepted.", ""
     except Exception as e:
-        return False, f"[!] VirusTotal request failed: {e}"
+        return False, f"[!] VirusTotal request failed: {e}", ""
+
+
+def vt_get_analysis(analysis_id: str, api_key: str) -> tuple[bool, dict]:
+    if not analysis_id:
+        return False, {}
+    url = f"https://www.virustotal.com/api/v3/analyses/{analysis_id}"
+    headers = {"x-apikey": api_key}
+    try:
+        resp = requests.get(url, headers=headers, timeout=60)
+        if resp.status_code != 200:
+            return False, {}
+        return True, resp.json() if resp.content else {}
+    except Exception:
+        return False, {}
+
+
+def vt_poll_final_verdict(analysis_id: str, api_key: str, max_wait_seconds: int = 120, interval_seconds: int = 5) -> str:
+    """Poll VirusTotal analysis and return a human-readable final summary."""
+    elapsed = 0
+    last_payload = {}
+    while elapsed <= max_wait_seconds:
+        ok, payload = vt_get_analysis(analysis_id, api_key)
+        if ok and payload:
+            last_payload = payload
+            status = payload.get("data", {}).get("attributes", {}).get("status", "")
+            if status == "completed":
+                break
+        time.sleep(interval_seconds)
+        elapsed += interval_seconds
+
+    attrs = last_payload.get("data", {}).get("attributes", {}) if last_payload else {}
+    stats = attrs.get("stats", {}) if isinstance(attrs.get("stats", {}), dict) else {}
+    results = attrs.get("results", {}) if isinstance(attrs.get("results", {}), dict) else {}
+
+    malicious = int(stats.get("malicious", 0) or 0)
+    suspicious = int(stats.get("suspicious", 0) or 0)
+    harmless = int(stats.get("harmless", 0) or 0)
+    undetected = int(stats.get("undetected", 0) or 0)
+
+    if malicious >= 10:
+        risk = "Critical"
+    elif malicious >= 1 or suspicious >= 5:
+        risk = "High"
+    elif suspicious >= 1:
+        risk = "Medium"
+    else:
+        risk = "Low"
+
+    detected = []
+    for engine, result_obj in results.items():
+        if not isinstance(result_obj, dict):
+            continue
+        cat = (result_obj.get("category") or "").lower()
+        sig = result_obj.get("result") or ""
+        if cat in ["malicious", "suspicious"] and sig:
+            detected.append(f"- {engine}: {sig}")
+    detected = detected[:10]
+
+    signatures_blob = "\n".join(detected)
+    cves = sorted(set(re.findall(r"CVE-\d{4}-\d{4,8}", signatures_blob, re.IGNORECASE)))
+    cves = [c.upper() for c in cves]
+
+    mitre = ["T1204"]
+    if malicious > 0:
+        mitre.append("T1105")
+
+    low_blob = signatures_blob.lower()
+    if "ransom" in low_blob or "locker" in low_blob:
+        mitre.append("T1486")
+    if "phish" in low_blob:
+        mitre.append("T1566")
+
+    mitre = sorted(set(mitre))
+
+    lines = [
+        "[+] VirusTotal analysis completed.",
+        f"Risk Level: {risk}",
+        f"Detections: malicious={malicious}, suspicious={suspicious}, harmless={harmless}, undetected={undetected}",
+        f"MITRE ATT&CK Mapping: {', '.join(mitre)}",
+        f"CVEs: {', '.join(cves) if cves else 'None detected in VT signatures'}",
+    ]
+    if detected:
+        lines.append("Top engine detections:")
+        lines.extend(detected)
+
+    return "\n".join(lines)
 
 def parse_and_save_vulnerabilities(tool: str, output: str, mission_id: int, executed_by: str, db) -> int:
     """
@@ -82,6 +169,21 @@ def parse_and_save_vulnerabilities(tool: str, output: str, mission_id: int, exec
     cve_matches = re.findall(r'CVE-\d{4}-\d{4,8}', output, re.IGNORECASE)
     unique_cves = list(set([c.upper() for c in cve_matches]))
     cve_str = ", ".join(unique_cves) if unique_cves else None
+    mitre_matches = re.findall(r'T\d{4}(?:\.\d{3})?', output, re.IGNORECASE)
+    unique_mitre = list(set([m.upper() for m in mitre_matches]))
+    mitre_str = ", ".join(unique_mitre) if unique_mitre else None
+
+    def default_mitre_for_tool(tool_name: str) -> str:
+        t = (tool_name or "").lower()
+        if "nmap" in t or "dns" in t or "whois" in t or "amass" in t or "whatweb" in t:
+            return "T1046"
+        if "nikto" in t or "sqlmap" in t or "zap" in t or "nuclei" in t:
+            return "T1190"
+        if "clam" in t or "virus" in t or "vt" in t:
+            return "T1204"
+        if "dependency" in t:
+            return "T1195"
+        return "T1595"
 
     # Tool specific parsing
     if tool == "nmap":
@@ -100,7 +202,7 @@ def parse_and_save_vulnerabilities(tool: str, output: str, mission_id: int, exec
                     "severity": "Low",
                     "description": desc,
                     "mitre_attack": "T1046",  # Network Service Discovery (Mitre technique)
-                    "cve": cve_str,
+                    "cve": cve_str or "CVE-Unknown",
                     "initial_cvss": 2.5
                 })
 
@@ -120,7 +222,7 @@ def parse_and_save_vulnerabilities(tool: str, output: str, mission_id: int, exec
                     "severity": "Medium",
                     "description": desc,
                     "mitre_attack": "T1190",  # Exploit Public-Facing Application
-                    "cve": line_cve_str,
+                    "cve": line_cve_str or "CVE-Unknown",
                     "initial_cvss": 5.5
                 })
 
@@ -134,7 +236,7 @@ def parse_and_save_vulnerabilities(tool: str, output: str, mission_id: int, exec
                 "severity": "Critical",
                 "description": desc + f"\n\nRaw SQLmap log sample:\n{output[:1000]}",
                 "mitre_attack": "T1190",  # Exploit Public-Facing Application
-                "cve": cve_str if cve_str else None,
+                "cve": cve_str or "CVE-Unknown",
                 "initial_cvss": 9.0
             })
 
@@ -169,8 +271,8 @@ def parse_and_save_vulnerabilities(tool: str, output: str, mission_id: int, exec
             "title": title,
             "severity": "Critical",
             "description": desc + f"\n\nVirusTotal Analysis output details:\n{output[:1200]}",
-            "mitre_attack": "T1105",  # Ingress Tool Transfer (C2 / Malicious payload retrieval)
-            "cve": cve_str,
+            "mitre_attack": mitre_str or "T1105",  # Ingress Tool Transfer (C2 / Malicious payload retrieval)
+            "cve": cve_str or "CVE-Unknown",
             "initial_cvss": 9.0
         })
 
@@ -201,9 +303,18 @@ def parse_and_save_vulnerabilities(tool: str, output: str, mission_id: int, exec
             
             # --- ADAPT SCORE CVSS ---
             # Increase rating if specific CVE or Mitre Techniques are mapping
-            if item["cve"]:
+            normalized_cve = (item.get("cve") or "").strip() if isinstance(item.get("cve"), str) else (item.get("cve") or "")
+            if not normalized_cve:
+                normalized_cve = "CVE-Unknown"
+
+            normalized_mitre = (item.get("mitre_attack") or "").strip() if isinstance(item.get("mitre_attack"), str) else (item.get("mitre_attack") or "")
+            if not normalized_mitre:
+                normalized_mitre = default_mitre_for_tool(tool)
+
+            if normalized_cve != "CVE-Unknown":
                 cvss += 1.0  # +1.0 for specific verified CVEs
-            if item["mitre_attack"] in ["T1190", "T1210", "T1195"]:
+            mitre_codes = [m.strip().upper() for m in normalized_mitre.split(",") if m.strip()]
+            if any(m in ["T1190", "T1210", "T1195"] for m in mitre_codes):
                 cvss += 0.5  # +0.5 for direct public-facing exploit technique risks
             if item["severity"] == "Critical":
                 cvss += 0.5  # Add factor for severity-verified tags
@@ -232,8 +343,8 @@ def parse_and_save_vulnerabilities(tool: str, output: str, mission_id: int, exec
                 cvss=round(cvss, 1),
                 mission_id=mission_id,
                 executed_by=executed_by,
-                cve=item["cve"],
-                mitre_attack=item["mitre_attack"]
+                cve=normalized_cve,
+                mitre_attack=normalized_mitre
             )
             db.add(v)
             v_added += 1
@@ -320,8 +431,24 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
             return {"status": "error", "output": msg}
 
         file_path = tokens[2]
-        ok, vt_output = vt_scan_file_via_api(file_path, vt_api_key)
+        ok, vt_output, analysis_id = vt_scan_file_via_api(file_path, vt_api_key)
+        if ok and analysis_id:
+            final_verdict = vt_poll_final_verdict(analysis_id, vt_api_key)
+            vt_output = f"{vt_output}\n{final_verdict}"
         self.update_state(state='PROGRESS', meta={'output': vt_output})
+
+        if mission_id is not None and vt_output:
+            try:
+                from .database import SessionLocal
+
+                db = SessionLocal()
+                parse_and_save_vulnerabilities("virustotal-manual", vt_output, mission_id, executed_by, db)
+                db.commit()
+            except Exception as e:
+                logger.error(f"Error saving VT manual finding: {e}")
+            finally:
+                db.close()
+
         return {
             "status": "completed" if ok else "error",
             "command": f"vt file scan {file_path}",
@@ -427,57 +554,6 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
         # -----------------------------
 
 
-        # --- PARSE & SAVE FINDINGS ---
-        if mission_id is not None:
-            try:
-                from .database import SessionLocal
-                from .models import Vulnerability
-                import re
-                
-                db = SessionLocal()
-                vulns_added = 0
-                
-                if tool == "nmap":
-                    # Parse Nmap Output
-                    for line in accumulated_output.split('\n'):
-                        match = re.search(r'^(\d+)/(tcp|udp)\s+open\s+([^\s]+)(?:\s+(.*))?', line)
-                        if match:
-                            port = match.group(1)
-                            protocol = match.group(2)
-                            service = match.group(3)
-                            version = match.group(4) or ""
-                            title = f"Open Port: {port}/{protocol} ({service})"
-                            desc = f"An open port was found running {service}.\nVersion info: {version}"
-                            
-                            # Check if exists
-                            exists = db.query(Vulnerability).filter_by(mission_id=mission_id, title=title).first()
-                            if not exists:
-                                v = Vulnerability(title=title, severity="Low", description=desc, mission_id=mission_id)
-                                db.add(v)
-                                vulns_added += 1
-                                
-                elif tool == "nikto":
-                    # Parse Nikto Output
-                    for line in accumulated_output.split('\n'):
-                        if "+ OSVDB" in line or (line.startswith("+") and "OSVDB" in line):
-                            parts = line.split(":", 1)
-                            title = parts[0].strip() if len(parts) > 0 else "Nikto Finding"
-                            desc = parts[1].strip() if len(parts) > 1 else line
-                            
-                            exists = db.query(Vulnerability).filter_by(mission_id=mission_id, title=title).first()
-                            if not exists:
-                                v = Vulnerability(title=title, severity="Medium", description=desc, mission_id=mission_id)
-                                db.add(v)
-                                vulns_added += 1
-                                
-                if vulns_added > 0:
-                    db.commit()
-            except Exception as e:
-                logger.error(f"Error parsing vulnerabilities: {e}")
-            finally:
-                db.close()
-        # -----------------------------
-
         if process.returncode != 0 and tool != "nikto": # Nikto often returns non-zero even on success/warnings
             redis_client.publish(f"scan_logs_{self.request.id}", json.dumps({"type": "status", "content": "FAILURE"}))
             return {
@@ -501,10 +577,10 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
 
 @celery_app.task(bind=True)
 def run_file_scan_task(self, file_path: str, original_name: str, mission_id: int = None, executed_by: str = "Automated Scan"):
-    """Scan an uploaded file with ClamAV and optionally VirusTotal API."""
+    """Scan an uploaded file with VirusTotal API."""
     safe_name = original_name or os.path.basename(file_path)
     output_lines = [
-        f"[NAYT] File scan started for: {safe_name}",
+        f"[NAYT] VirusTotal scan started for: {safe_name}",
         f"[NAYT] Stored path: {file_path}",
     ]
 
@@ -518,64 +594,18 @@ def run_file_scan_task(self, file_path: str, original_name: str, mission_id: int
         err = f"Uploaded file not found: {file_path}"
         return {"status": "error", "output": err}
 
-    # Ensure ClamAV signatures are present.
-    clam_db_dir = Path("/var/lib/clamav")
-    has_signatures = any(clam_db_dir.glob("*.cvd")) or any(clam_db_dir.glob("*.cld"))
-    if not has_signatures and check_tool_availability("freshclam"):
-        output_lines.append("[NAYT] ClamAV signatures missing, running freshclam...")
-        _emit_progress()
-        try:
-            bootstrap = subprocess.run(
-                ["freshclam"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                timeout=240,
-            )
-            if bootstrap.stdout:
-                output_lines.append(bootstrap.stdout.strip())
-                _emit_progress()
-        except Exception as e:
-            output_lines.append(f"[!] freshclam failed: {e}")
-            _emit_progress()
-
-    if not check_tool_availability("clamscan"):
-        return {
-            "status": "error",
-            "output": "Tool 'clamscan' is not installed in the backend container.",
-        }
-
     try:
-        clam_cmd = ["clamscan", "--no-summary", file_path]
-        output_lines.append(f"$ {' '.join(clam_cmd)}")
-        _emit_progress()
-
-        clam_proc = subprocess.Popen(
-            clam_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        clam_output = ""
-        for line in clam_proc.stdout:
-            clam_output += line
-            clean = line.rstrip("\n")
-            if clean:
-                output_lines.append(clean)
-                _emit_progress()
-        clam_proc.wait()
-
-        if clam_proc.returncode not in [0, 1]:
-            output_lines.append(f"[!] ClamAV exited with code {clam_proc.returncode}")
-
-        # Optional VirusTotal API check.
+        vt_output_for_parser = ""
         vt_api_key = os.getenv("VT_API_KEY", "").strip() or get_system_config_value("virustotal_api_key")
         if vt_api_key:
             output_lines.append(f"$ vt file scan {file_path}")
             _emit_progress()
-            ok, vt_output = vt_scan_file_via_api(file_path, vt_api_key)
+            ok, vt_output, analysis_id = vt_scan_file_via_api(file_path, vt_api_key)
+            if ok and analysis_id:
+                vt_final = vt_poll_final_verdict(analysis_id, vt_api_key)
+                vt_output = f"{vt_output}\n{vt_final}"
             output_lines.extend(vt_output.split("\n"))
+            vt_output_for_parser = vt_output
             _emit_progress()
             if not ok:
                 output_lines.append("[!] VirusTotal scan step failed.")
@@ -589,7 +619,8 @@ def run_file_scan_task(self, file_path: str, original_name: str, mission_id: int
                 from .database import SessionLocal
 
                 db = SessionLocal()
-                parse_and_save_vulnerabilities("clamav-file", final_output, mission_id, executed_by, db)
+                if vt_output_for_parser:
+                    parse_and_save_vulnerabilities("virustotal-file", vt_output_for_parser, mission_id, executed_by, db)
                 db.commit()
             except Exception as e:
                 logger.error(f"Error saving file scan finding: {e}")
@@ -863,12 +894,25 @@ def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port
             
             exists = db.query(Vulnerability).filter_by(mission_id=mission_id, title=title).first()
             if not exists:
-                v = Vulnerability(title=title, severity="Info", description=desc, evidence=overall_output, mission_id=mission_id, executed_by=executed_by)
+                v = Vulnerability(
+                    title=title,
+                    severity="Info",
+                    description=desc,
+                    evidence=overall_output,
+                    mission_id=mission_id,
+                    executed_by=executed_by,
+                    cve="CVE-Unknown",
+                    mitre_attack="T1595",
+                )
                 db.add(v)
             else:
                 exists.description = desc
                 exists.evidence = overall_output
                 exists.executed_by = executed_by
+                if not exists.cve:
+                    exists.cve = "CVE-Unknown"
+                if not exists.mitre_attack:
+                    exists.mitre_attack = "T1595"
             
             db.commit()
             db.close()
