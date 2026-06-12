@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -8,14 +8,30 @@ import os
 import threading
 from datetime import datetime
 from docxtpl import DocxTemplate
+import logging
+import json
+
+from jose import JWTError, jwt
 
 from . import models, schemas, auth, database, tasks
-from .database import engine, get_db
+from .database import engine, get_db, SessionLocal
 from fastapi.security import OAuth2PasswordRequestForm
 from .celery_app import celery_app
 from .integrations import send_webhook_alert
 from celery.result import AsyncResult
 from datetime import timedelta
+
+logger = logging.getLogger(__name__)
+
+
+def ensure_editor(current_user: models.User):
+    if current_user.role not in ["Admin", "Pentester"]:
+        raise HTTPException(status_code=403, detail="Editor role required")
+
+
+def ensure_admin(current_user: models.User):
+    if current_user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
 
 # Create tables
 # models.Base.metadata.create_all(bind=engine)
@@ -82,11 +98,13 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 # --- User Routes ---
 @app.get("/users", response_model=List[schemas.UserResponse])
 def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    ensure_admin(current_user)
     users = db.query(models.User).offset(skip).limit(limit).all()
     return users
 
 @app.post("/users", response_model=schemas.UserResponse)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    ensure_admin(current_user)
     db_user = db.query(models.User).filter(models.User.username == user.username).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Username already registered")
@@ -99,6 +117,7 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db), current
 
 @app.delete("/users/{user_id}")
 def delete_user(user_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    ensure_admin(current_user)
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -113,6 +132,7 @@ class PasswordReset(BaseModel):
 
 @app.put("/users/{user_id}/reset-password")
 def reset_password(user_id: int, reset: PasswordReset, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    ensure_admin(current_user)
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -128,6 +148,7 @@ def read_clients(skip: int = 0, limit: int = 100, db: Session = Depends(get_db),
 
 @app.post("/clients", response_model=schemas.Client)
 def create_client(client: schemas.ClientCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    ensure_editor(current_user)
     client_data = client.dict()
     client_data["user_id"] = current_user.id
     db_client = models.Client(**client_data)
@@ -138,6 +159,7 @@ def create_client(client: schemas.ClientCreate, db: Session = Depends(get_db), c
 
 @app.delete("/clients/{client_id}")
 def delete_client(client_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    ensure_editor(current_user)
     client = db.query(models.Client).filter(models.Client.id == client_id).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -147,6 +169,7 @@ def delete_client(client_id: int, db: Session = Depends(get_db), current_user: m
 
 @app.put("/clients/{client_id}", response_model=schemas.Client)
 def update_client(client_id: int, client_update: schemas.ClientUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    ensure_editor(current_user)
     client = db.query(models.Client).filter(models.Client.id == client_id).first()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -167,6 +190,7 @@ def read_missions(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
 
 @app.post("/missions", response_model=schemas.Mission)
 def create_mission(mission: schemas.MissionCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    ensure_editor(current_user)
     mission_data = mission.dict()
     mission_data["user_id"] = current_user.id
     db_mission = models.Mission(**mission_data)
@@ -177,6 +201,7 @@ def create_mission(mission: schemas.MissionCreate, db: Session = Depends(get_db)
 
 @app.put("/missions/{mission_id}", response_model=schemas.Mission)
 def update_mission(mission_id: int, mission_update: schemas.MissionUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    ensure_editor(current_user)
     mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
@@ -192,6 +217,7 @@ def update_mission(mission_id: int, mission_update: schemas.MissionUpdate, db: S
 
 @app.delete("/missions/{mission_id}")
 def delete_mission(mission_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    ensure_editor(current_user)
     mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
@@ -228,6 +254,7 @@ def _trigger_webhook_if_needed(db, title, description, cvss):
 
 @app.put("/vulnerabilities/{vuln_id}", response_model=schemas.Vulnerability)
 def update_vulnerability(vuln_id: int, vuln_update: schemas.VulnerabilityUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    ensure_editor(current_user)
     vuln = db.query(models.Vulnerability).join(models.Mission).filter(models.Vulnerability.id == vuln_id).first()
     if not vuln:
         raise HTTPException(status_code=404, detail="Vulnerability not found")
@@ -246,6 +273,7 @@ def update_vulnerability(vuln_id: int, vuln_update: schemas.VulnerabilityUpdate,
 
 @app.delete("/vulnerabilities/{vuln_id}")
 def delete_vulnerability(vuln_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    ensure_editor(current_user)
     vuln = db.query(models.Vulnerability).join(models.Mission).filter(models.Vulnerability.id == vuln_id).first()
     if not vuln:
         raise HTTPException(status_code=404, detail="Vulnerability not found")
@@ -428,8 +456,7 @@ class ConfigUpdate(BaseModel):
 
 @app.post("/admin/config")
 def set_config(config: ConfigUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    if current_user.username != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
+    ensure_admin(current_user)
         
     db_conf = db.query(models.SystemConfig).filter(models.SystemConfig.key == config.key).first()
     if db_conf:
@@ -443,8 +470,7 @@ def set_config(config: ConfigUpdate, db: Session = Depends(get_db), current_user
 
 @app.get("/admin/config/{key}")
 def get_config(key: str, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    if current_user.username != "admin":
-         raise HTTPException(status_code=403, detail="Admin only")
+    ensure_admin(current_user)
     
     conf = db.query(models.SystemConfig).filter(models.SystemConfig.key == key).first()
     if not conf:
@@ -481,16 +507,121 @@ def generate_report(mission_id: int, db: Session = Depends(get_db), current_user
 def read_users_me(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
 
+@app.post("/ask-question")
+async def ask_local_ai(req: schemas.AskQuestionRequest, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    system_prompt = (
+        "You are NAYT AI, a Cybersecurity Expert Agent embedded in a professional pentest suite. "
+        "Answer the pentester's question accurately, directly and with technical detail in the same language as the question.\n\n"
+        f"Context:\n{req.context or 'None'}\n\n"
+        f"Question:\n{req.question}"
+    )
 
-class ConnectionManager:
+    # 1. Try Gemini first (configured by admin) - most reliable
+    key_conf = db.query(models.SystemConfig).filter(models.SystemConfig.key == "gemini_api_key").first()
+    if key_conf and key_conf.value and key_conf.value.strip():
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=key_conf.value.strip())
+            model = genai.GenerativeModel('gemini-pro')
+            response = model.generate_content(system_prompt)
+            return {"answer": response.text}
+        except Exception as err:
+            logger.error(f"Gemini AI failed: {err}")
+
+    # 2. Try local Ollama (only if explicitly configured, with a short timeout to avoid blocking)
+    import httpx
+    ollama_url = os.getenv("OLLAMA_URL", "")
+    if ollama_url:
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                resp = await client.post(
+                    f"{ollama_url}/api/generate",
+                    json={"model": "llama3", "prompt": system_prompt, "stream": False}
+                )
+                if resp.status_code == 200:
+                    return {"answer": resp.json().get("response", "")}
+        except Exception as e:
+            logger.info(f"Ollama not reachable: {e}")
+
+    # 3. Built-in expert offline fallback
+    q = req.question.lower()
+    lang_is_fr = any(w in q for w in ["comment", "qu'est", "quelle", "quel", "vulnérab", "injection"])
+
+    kb: dict[str, str] = {
+        "sql": (
+            "**SQL Injection** — Technique Mitre ATT&CK T1190\n\n"
+            "**Detection**: `sqlmap -u 'http://target/page?id=1' --batch --level=3`\n"
+            "**Remediation**: Use parameterized queries (prepared statements), ORM frameworks, input validation and WAF rules."
+        ),
+        "nmap": (
+            "**Network Reconnaissance** — Mitre T1046\n\n"
+            "**Scan**: `nmap -sT -sV -T4 -p- target`\n"
+            "**Remediation**: Restrict exposed ports via firewall rules, implement network segmentation."
+        ),
+        "xss": (
+            "**Cross-Site Scripting (XSS)** — Mitre T1059.007\n\n"
+            "**Detection**: Inject `<script>alert(1)</script>` in input fields.\n"
+            "**Remediation**: Output encoding, Content-Security-Policy headers, input sanitization."
+        ),
+        "clamav|malware|virus": (
+            "**Malware Analysis with ClamAV** — Mitre T1204\n\n"
+            "**Scan**: `clamscan -r /target/dir --max-filesize=50M`\n"
+            "**Remediation**: Isolate infected systems, update AV signatures, investigate persistence mechanisms."
+        ),
+        "cvss": (
+            "**CVSS Scoring Guide**\n\n"
+            "- Critical: 9.0-10.0 | High: 7.0-8.9 | Medium: 4.0-6.9 | Low: 0.1-3.9\n"
+            "NAYT automatically adjusts CVSS based on detected CVEs (+1.0) and Mitre techniques (+0.5)."
+        ),
+        "mitre": (
+            "**Mitre ATT&CK Framework**\n\n"
+            "Key techniques used in NAYT:\n"
+            "- T1046: Network Service Discovery (Nmap)\n- T1190: Exploit Public-Facing Application (SQLmap, Nikto)\n"
+            "- T1195: Supply Chain Compromise (Dependency-Check)\n- T1204: User Execution (ClamAV, Cuckoo)"
+        ),
+    }
+
+    for keywords, answer in kb.items():
+        if any(k in q for k in keywords.split("|")):
+            prefix = "**NAYT AI (mode hors-ligne)** :\n\n" if lang_is_fr else "**NAYT AI (offline mode)** :\n\n"
+            return {"answer": prefix + answer}
+
+    # Generic offline fallback
+    if lang_is_fr:
+        ans = (
+            "**NAYT AI (mode hors-ligne)** :\n\n"
+            "Je suis votre assistant IA de cybersécurité NAYT.\n\n"
+            "Pour des réponses avancées, configurez une clé API Gemini dans **Admin Panel → Configuration**.\n\n"
+            f"Votre question : *{req.question}*\n\n"
+            "Je peux vous aider sur : injections SQL, scans Nmap, XSS, CVEs, scores CVSS, framework Mitre ATT&CK."
+        )
+    else:
+        ans = (
+            "**NAYT AI (offline mode)** :\n\n"
+            "I'm your NAYT cybersecurity AI assistant.\n\n"
+            "For advanced AI responses, configure a Gemini API key in **Admin Panel → Configuration**.\n\n"
+            f"Your question: *{req.question}*\n\n"
+            "I can help with: SQL injections, Nmap scans, XSS, CVEs, CVSS scores, Mitre ATT&CK framework."
+        )
+    return {"answer": ans}
+
+
+class PresenceConnectionManager:
     def __init__(self):
-        self.active_connections: dict = {}
+        self.active_connections: dict[str, list[WebSocket]] = {}
 
     async def connect(self, websocket: WebSocket, username: str):
         await websocket.accept()
         if username not in self.active_connections:
             self.active_connections[username] = []
-            await self.broadcast({"type": "user_connected", "username": username, "users": list(self.active_connections.keys())}, exclude=username)
+            await self.broadcast(
+                {
+                    "type": "user_connected",
+                    "username": username,
+                    "users": list(self.active_connections.keys())
+                },
+                exclude=username,
+            )
         self.active_connections[username].append(websocket)
         await websocket.send_json({"type": "sync_users", "users": list(self.active_connections.keys())})
 
@@ -513,63 +644,147 @@ class ConnectionManager:
                 except Exception:
                     pass
 
-ws_manager = ConnectionManager()
 
-@app.websocket("/ws/users/{username}")
-async def websocket_endpoint(websocket: WebSocket, username: str):
-    await ws_manager.connect(websocket, username)
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        fully_disconnected = ws_manager.disconnect(websocket, username)
-        if fully_disconnected:
-            await ws_manager.broadcast({"type": "user_disconnected", "username": username, "users": list(ws_manager.active_connections.keys())})
-
-
-class ConnectionManager:
+class ChatConnectionManager:
     def __init__(self):
-        self.active_connections: dict = {}
+        self.connections: list[WebSocket] = []
 
-    async def connect(self, websocket: WebSocket, username: str):
+    async def connect(self, websocket: WebSocket):
         await websocket.accept()
-        if username not in self.active_connections:
-            self.active_connections[username] = []
-            await self.broadcast({"type": "user_connected", "username": username, "users": list(self.active_connections.keys())}, exclude=username)
-        self.active_connections[username].append(websocket)
-        await websocket.send_json({"type": "sync_users", "users": list(self.active_connections.keys())})
+        self.connections.append(websocket)
 
-    def disconnect(self, websocket: WebSocket, username: str):
-        if username in self.active_connections:
-            if websocket in self.active_connections[username]:
-                self.active_connections[username].remove(websocket)
-            if len(self.active_connections[username]) == 0:
-                del self.active_connections[username]
-                return True
-        return False
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.connections:
+            self.connections.remove(websocket)
 
-    async def broadcast(self, message: dict, exclude: str = None):
-        for user, connections in self.active_connections.items():
-            if exclude and user == exclude:
-                continue
-            for connection in connections:
-                try:
-                    await connection.send_json(message)
-                except Exception:
-                    pass
+    async def broadcast(self, message: dict):
+        for conn in list(self.connections):
+            try:
+                await conn.send_json(message)
+            except Exception:
+                self.disconnect(conn)
 
-ws_manager = ConnectionManager()
+
+presence_ws_manager = PresenceConnectionManager()
+chat_ws_manager = ChatConnectionManager()
+
+
+def get_user_from_token(token: str, db: Session):
+    try:
+        payload = jwt.decode(token, auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
+        username: str = payload.get("sub")
+        if not username:
+            return None
+    except JWTError:
+        return None
+    return db.query(models.User).filter(models.User.username == username).first()
+
+
+@app.get("/chat/messages", response_model=List[schemas.ChatMessageResponse])
+def get_chat_messages(limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    capped_limit = max(1, min(limit, 300))
+    rows = (
+        db.query(models.ChatMessage)
+        .order_by(models.ChatMessage.created_at.desc())
+        .limit(capped_limit)
+        .all()
+    )
+    return list(reversed(rows))
+
+
+@app.post("/chat/messages", response_model=schemas.ChatMessageResponse)
+def post_chat_message(payload: schemas.ChatMessageCreate, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    message = (payload.message or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    db_msg = models.ChatMessage(username=current_user.username, message=message)
+    db.add(db_msg)
+    db.commit()
+    db.refresh(db_msg)
+    return db_msg
+
 
 @app.websocket("/ws/users/{username}")
-async def websocket_endpoint(websocket: WebSocket, username: str):
-    await ws_manager.connect(websocket, username)
+async def websocket_presence_endpoint(websocket: WebSocket, username: str):
+    await presence_ws_manager.connect(websocket, username)
     try:
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
-        fully_disconnected = ws_manager.disconnect(websocket, username)
+        fully_disconnected = presence_ws_manager.disconnect(websocket, username)
         if fully_disconnected:
-            await ws_manager.broadcast({"type": "user_disconnected", "username": username, "users": list(ws_manager.active_connections.keys())})
+            await presence_ws_manager.broadcast(
+                {
+                    "type": "user_disconnected",
+                    "username": username,
+                    "users": list(presence_ws_manager.active_connections.keys()),
+                }
+            )
+
+
+@app.websocket("/ws/chat")
+async def websocket_chat_endpoint(websocket: WebSocket, token: str = Query(...)):
+    db = SessionLocal()
+    try:
+        user = get_user_from_token(token, db)
+        if not user:
+            await websocket.close(code=1008)
+            return
+
+        await chat_ws_manager.connect(websocket)
+
+        recent = (
+            db.query(models.ChatMessage)
+            .order_by(models.ChatMessage.created_at.desc())
+            .limit(80)
+            .all()
+        )
+        await websocket.send_json(
+            {
+                "type": "history",
+                "messages": [
+                    {
+                        "id": m.id,
+                        "username": m.username,
+                        "message": m.message,
+                        "created_at": m.created_at.isoformat() if m.created_at else None,
+                    }
+                    for m in reversed(recent)
+                ],
+            }
+        )
+
+        while True:
+            data = await websocket.receive_text()
+            try:
+                parsed = json.loads(data)
+                text = (parsed.get("message") or "").strip()
+            except Exception:
+                text = ""
+
+            if not text:
+                continue
+
+            db_msg = models.ChatMessage(username=user.username, message=text)
+            db.add(db_msg)
+            db.commit()
+            db.refresh(db_msg)
+
+            await chat_ws_manager.broadcast(
+                {
+                    "type": "message",
+                    "message": {
+                        "id": db_msg.id,
+                        "username": db_msg.username,
+                        "message": db_msg.message,
+                        "created_at": db_msg.created_at.isoformat() if db_msg.created_at else None,
+                    },
+                }
+            )
+    except WebSocketDisconnect:
+        chat_ws_manager.disconnect(websocket)
+    finally:
+        db.close()
 
 # Mathematical Mapping for severity to CVSS
 SEVERITY_WEIGHTS = {

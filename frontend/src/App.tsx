@@ -6,17 +6,55 @@ import { Dashboard } from './components/Dashboard';
 import { MissionControl } from './components/MissionControl';
 import { NotificationSystem } from './components/NotificationSystem';
 import { AdminPanel } from './components/AdminPanel';
+import { GlobalChatBubble } from './components/GlobalChatBubble';
 import { toolsService } from './services/apiService';
+import { autoTranslateDom } from './services/autoTranslateService';
 import { ReconView, VulnerabilitiesView, ReportsView } from './components/FunctionalViews';
-import { Shield, LogOut, ChevronRight, User as UserIcon, Lock, Menu, X, Plus, Languages, Sun, Moon, Trash2, Users, Settings } from 'lucide-react';
+import { LogOut, ChevronRight, User as UserIcon, Lock, Menu, X, Plus, Languages, Sun, Moon, Trash2, Users, Settings } from 'lucide-react';
+
+const LANGUAGE_OPTIONS = [
+    { code: 'en', label: 'English' },
+    { code: 'fr', label: 'Francais' },
+    { code: 'es', label: 'Espanol' },
+    { code: 'de', label: 'Deutsch' },
+    { code: 'it', label: 'Italiano' },
+    { code: 'pt', label: 'Portugues' },
+    { code: 'nl', label: 'Nederlands' },
+    { code: 'pl', label: 'Polski' },
+    { code: 'sv', label: 'Svenska' },
+    { code: 'no', label: 'Norsk' },
+    { code: 'da', label: 'Dansk' },
+    { code: 'fi', label: 'Suomi' },
+    { code: 'cs', label: 'Cestina' },
+    { code: 'ro', label: 'Romana' },
+    { code: 'hu', label: 'Magyar' },
+    { code: 'tr', label: 'Turkce' },
+    { code: 'ru', label: 'Russkiy' },
+    { code: 'uk', label: 'Ukrayinska' },
+    { code: 'ar', label: 'Arabic' },
+    { code: 'he', label: 'Hebrew' },
+    { code: 'hi', label: 'Hindi' },
+    { code: 'bn', label: 'Bangla' },
+    { code: 'ur', label: 'Urdu' },
+    { code: 'ja', label: 'Japanese' },
+    { code: 'ko', label: 'Korean' },
+    { code: 'zh-CN', label: 'Chinese (Simplified)' },
+    { code: 'zh-TW', label: 'Chinese (Traditional)' },
+    { code: 'th', label: 'Thai' },
+    { code: 'vi', label: 'Vietnamese' },
+    { code: 'id', label: 'Indonesian' },
+];
 
 export default function App() {
   const [users, setUsers] = useState<User[]>([]);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [user, setUser] = useState<User | null>(null);
-  const [lang, setLang] = useState<Language>('en'); // Default Language
+    const baseLang: Language = 'en';
+    const [uiLanguage, setUiLanguage] = useState<string>(() => localStorage.getItem('ui_lang') || 'en');
   const [theme, setTheme] = useState<Theme>('dark'); // Default Theme
+    const translateCacheRef = useRef<Map<string, string>>(new Map());
+    const originalTextRef = useRef<WeakMap<Text, string>>(new WeakMap());
 
   const [activeUsers, setActiveUsers] = useState<string[]>([]);
   const [showUsersDropdown, setShowUsersDropdown] = useState(false);
@@ -82,7 +120,7 @@ export default function App() {
   const [newMissionTarget, setNewMissionTarget] = useState('');
   const [newMissionClientId, setNewMissionClientId] = useState<number | ''>('');
 
-  const t = translations[lang];
+    const t = translations[baseLang];
 
   // Load user data and missions if token exists
   useEffect(() => {
@@ -179,7 +217,7 @@ export default function App() {
   }, [theme]);
 
   // Notification Logic
-  const addNotification = (type: 'success' | 'error', message: string) => {
+  const addNotification = (type: 'success' | 'error' | 'info', message: string) => {
     const id = Date.now().toString();
     setNotifications(prev => [...prev, { id, type, message, duration: 5000 }]);
   };
@@ -188,13 +226,42 @@ export default function App() {
     setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
-  const toggleLanguage = () => {
-      setLang(prev => prev === 'en' ? 'fr' : 'en');
+  const handleLanguageChange = (nextLang: string) => {
+      setUiLanguage(nextLang);
+      localStorage.setItem('ui_lang', nextLang);
   };
 
   const toggleTheme = () => {
       setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
+
+    useEffect(() => {
+        let disposed = false;
+        const root = document.body;
+        let timer: number | null = null;
+
+        const runTranslation = async () => {
+            if (disposed) return;
+            await autoTranslateDom(uiLanguage, root, translateCacheRef.current, originalTextRef.current);
+        };
+
+        const schedule = () => {
+            if (timer) window.clearTimeout(timer);
+            timer = window.setTimeout(() => {
+                runTranslation();
+            }, 120);
+        };
+
+        schedule();
+        const observer = new MutationObserver(() => schedule());
+        observer.observe(root, { childList: true, subtree: true, characterData: true });
+
+        return () => {
+            disposed = true;
+            observer.disconnect();
+            if (timer) window.clearTimeout(timer);
+        };
+    }, [uiLanguage, user, selectedMission, activeView, notifications.length]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -385,18 +452,24 @@ export default function App() {
         <NotificationSystem notifications={notifications} removeNotification={removeNotification} />
         <div className="w-full max-w-md p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl animate-scaleIn relative transition-colors duration-300">
           
-          <div className="absolute top-4 right-4 flex gap-2">
+          <div className="absolute top-4 right-4 flex gap-2 items-center">
             <button onClick={toggleTheme} className="text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors">
                 {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
             </button>
-            <button onClick={toggleLanguage} className="text-slate-500 hover:text-slate-900 dark:hover:text-white text-xs uppercase font-bold tracking-wider pt-1">
-                {lang === 'en' ? 'FR' : 'EN'}
-            </button>
+            <select
+                value={uiLanguage}
+                onChange={(e) => handleLanguageChange(e.target.value)}
+                className="text-xs bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-slate-700 dark:text-slate-200"
+            >
+                {LANGUAGE_OPTIONS.map((opt) => (
+                    <option key={opt.code} value={opt.code}>{opt.label}</option>
+                ))}
+            </select>
           </div>
 
           <div className="flex justify-center mb-6">
-            <div className="p-4 bg-blue-100 dark:bg-blue-600/10 rounded-full border border-blue-200 dark:border-blue-500/20">
-                <Shield size={48} className="text-blue-600 dark:text-blue-500" />
+            <div className="p-4 bg-violet-100 dark:bg-violet-600/10 rounded-full border border-violet-200 dark:border-violet-500/20">
+                                <img src="/nayt-logo.png" alt="NAYT logo" className="w-12 h-12 object-contain" />
             </div>
           </div>
           <h1 className="text-3xl font-bold text-center text-slate-900 dark:text-white mb-2">NAYT - Toolbox</h1>
@@ -406,12 +479,12 @@ export default function App() {
             <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{t.username}</label>
                 <div className="relative group">
-                    <UserIcon className="absolute left-3 top-3 text-slate-400 dark:text-slate-500 group-focus-within:text-blue-500 dark:group-focus-within:text-blue-400 transition-colors" size={18} />
+                    <UserIcon className="absolute left-3 top-3 text-slate-400 dark:text-slate-500 group-focus-within:text-violet-500 dark:group-focus-within:text-violet-400 transition-colors" size={18} />
                     <input 
                         type="text" 
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-violet-500 outline-none transition-all"
                         placeholder={t.enterUsername}
                     />
                 </div>
@@ -419,12 +492,12 @@ export default function App() {
             <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{t.password}</label>
                 <div className="relative group">
-                    <Lock className="absolute left-3 top-3 text-slate-400 dark:text-slate-500 group-focus-within:text-blue-500 dark:group-focus-within:text-blue-400 transition-colors" size={18} />
+                    <Lock className="absolute left-3 top-3 text-slate-400 dark:text-slate-500 group-focus-within:text-violet-500 dark:group-focus-within:text-violet-400 transition-colors" size={18} />
                     <input 
                         type="password" 
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-violet-500 outline-none transition-all"
                         placeholder="••••••••"
                     />
                 </div>
@@ -434,7 +507,7 @@ export default function App() {
             
             <button 
                 type="submit"
-                className="w-full bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-500 text-white font-semibold py-3 rounded-lg shadow-lg hover:shadow-blue-500/20 transition-all hover:scale-[1.02]"
+                className="w-full bg-violet-600 hover:bg-violet-700 dark:hover:bg-violet-500 text-white font-semibold py-3 rounded-lg shadow-lg hover:shadow-violet-500/20 transition-all hover:scale-[1.02]"
             >
                 {t.authenticate}
             </button>
@@ -483,7 +556,9 @@ export default function App() {
       );
   }
 
-  const allNavItems = user.role === Role.ADMIN ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS;
+    const canManageUsers = user.role === Role.ADMIN;
+    const canEdit = user.role === Role.ADMIN || user.role === Role.PENTESTER;
+    const allNavItems = canManageUsers ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS;
 
   // Main Layout
   return (
@@ -505,7 +580,7 @@ export default function App() {
       `}>
         <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-3">
-                <Shield className="text-blue-600 dark:text-blue-500" size={28} />
+                <img src="/nayt-logo.png" alt="NAYT logo" className="w-7 h-7 object-contain" />
                 <h1 className="font-bold text-slate-900 dark:text-white tracking-tight">NAYT</h1>
             </div>
             <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors">
@@ -531,7 +606,7 @@ export default function App() {
                     }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
                         isActive 
-                        ? 'bg-blue-600 text-white shadow-md' 
+                        ? 'bg-violet-600 text-white shadow-md' 
                         : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
                     }`}
                 >
@@ -552,14 +627,18 @@ export default function App() {
                 <span>{t.changeTheme || "Theme"}</span>
            </button>
 
-           {/* Language Toggle */}
-           <button 
-                onClick={toggleLanguage}
-                className="w-full flex items-center gap-3 px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-sm font-medium transition-colors"
-           >
+           <div className="w-full flex items-center gap-3 px-4 py-2 text-slate-600 dark:text-slate-400 rounded-lg text-sm font-medium">
                 <Languages size={18} />
-                <span className="uppercase">{lang}</span>
-           </button>
+                <select
+                    value={uiLanguage}
+                    onChange={(e) => handleLanguageChange(e.target.value)}
+                    className="flex-1 text-xs bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-slate-700 dark:text-slate-200"
+                >
+                    {LANGUAGE_OPTIONS.map((opt) => (
+                        <option key={opt.code} value={opt.code}>{opt.label}</option>
+                    ))}
+                </select>
+           </div>
 
           <div 
             className="flex items-center gap-3 px-4 py-3 mb-2 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors group"
@@ -659,17 +738,17 @@ export default function App() {
                     setShowEditMission(true);
                 }}
                 notify={addNotification}
-                lang={lang}
+                lang={baseLang}
                 userRole={user?.role || "Viewer"}
             />
             ) : (
             <>
-                {activeView === 'dashboard' && <Dashboard missions={missions} lang={lang}
+                {activeView === 'dashboard' && <Dashboard missions={missions} lang={baseLang}
                 userRole={user?.role || "Viewer"} />}
                 
                 {activeView === 'missions' && (
                 <div className="space-y-6">
-                    {user.role !== 'Viewer' && user.role !== 'viewer' && user.role !== 'VIEWER' && (
+                    {canEdit && (
                     <div className="flex justify-end gap-3">
                         <button 
                             onClick={() => setShowClientManager(true)}
@@ -692,7 +771,7 @@ export default function App() {
                             onClick={() => setSelectedMission(mission)}
                             className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-500 hover:shadow-lg transition-all cursor-pointer group hover:-translate-y-1 shadow-sm relative"
                         >
-                            {(user.role === Role.ADMIN || user.role === 'Admin' || user.role === 'admin') && (
+                            {canEdit && (
                                 <div className="absolute top-6 right-6 flex gap-2 z-10">
                                     <button
                                         onClick={(e) => {
@@ -743,18 +822,18 @@ export default function App() {
                 </div>
                 )}
 
-                {activeView === 'recon' && <ReconView missions={missions} lang={lang}
+                {activeView === 'recon' && <ReconView missions={missions} lang={baseLang}
                 userRole={user?.role || "Viewer"} />}
-                {activeView === 'vulns' && <VulnerabilitiesView missions={missions} lang={lang}
+                {activeView === 'vulns' && <VulnerabilitiesView missions={missions} lang={baseLang}
                     userRole={user?.role || "Viewer"} onRefresh={fetchMissions} />}
-                {activeView === 'reports' && <ReportsView missions={missions} lang={lang}
+                {activeView === 'reports' && <ReportsView missions={missions} lang={baseLang}
                 userRole={user?.role || "Viewer"} />}
 
-                {activeView === 'admin' && user.role === Role.ADMIN && (
-                    <AdminPanel notify={addNotification} users={users} setUsers={setUsers} lang={lang}
+                {activeView === 'admin' && canManageUsers && (
+                    <AdminPanel notify={addNotification} users={users} setUsers={setUsers} lang={baseLang}
                 userRole={user?.role || "Viewer"} />
                 )}
-                {activeView === 'admin' && user.role !== Role.ADMIN && (
+                {activeView === 'admin' && !canManageUsers && (
                     <div className="flex flex-col items-center justify-center h-[400px] text-slate-500 animate-fadeIn">
                         <Lock size={48} className="mb-4 text-red-500" />
                         <h3 className="text-xl text-slate-900 dark:text-white font-semibold">{t.accessDenied}</h3>
@@ -766,7 +845,9 @@ export default function App() {
         </div>
       </main>
 
-      {/* Profile Modal */}
+    <GlobalChatBubble currentUsername={user.username} />
+
+    {/* Profile Modal */}
       {showProfile && (
           <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 animate-fadeIn">
               <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 w-full max-w-sm relative shadow-2xl animate-scaleIn">

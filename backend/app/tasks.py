@@ -5,10 +5,184 @@ import logging
 import redis
 import json
 import os
+import re
 
 logger = logging.getLogger(__name__)
 
 redis_client = redis.Redis.from_url(os.getenv('REDIS_URL', 'redis://redis:6379/0'))
+
+def parse_and_save_vulnerabilities(tool: str, output: str, mission_id: int, executed_by: str, db) -> int:
+    """
+    Parses output from various security tools, extracts CVE and Mitre Attack mappings,
+    adapts CVSS score, and saves new findings in database.
+    """
+    from .models import Vulnerability
+
+    # Accumulate findings
+    vulns = []
+    
+    # Generic extraction of CVEs (like CVE-YYYY-NNNNNN)
+    cve_matches = re.findall(r'CVE-\d{4}-\d{4,8}', output, re.IGNORECASE)
+    unique_cves = list(set([c.upper() for c in cve_matches]))
+    cve_str = ", ".join(unique_cves) if unique_cves else None
+
+    # Tool specific parsing
+    if tool == "nmap":
+        for line in output.split('\n'):
+            match = re.search(r'^(\d+)/(tcp|udp)\s+open\s+([^\s]+)(?:\s+(.*))?', line)
+            if match:
+                port = match.group(1)
+                protocol = match.group(2)
+                service = match.group(3)
+                version = match.group(4) or ""
+                title = f"Open Port: {port}/{protocol} ({service})"
+                desc = f"An open port was found running {service}.\nVersion info: {version}"
+                
+                vulns.append({
+                    "title": title,
+                    "severity": "Low",
+                    "description": desc,
+                    "mitre_attack": "T1046",  # Network Service Discovery (Mitre technique)
+                    "cve": cve_str,
+                    "initial_cvss": 2.5
+                })
+
+    elif tool == "nikto":
+        for line in output.split('\n'):
+            if "+ OSVDB" in line or (line.startswith("+") and "OSVDB" in line) or "OSVDB-" in line:
+                parts = line.split(":", 1)
+                title = parts[0].strip() if len(parts) > 0 else "Nikto Finding"
+                desc = parts[1].strip() if len(parts) > 1 else line
+                
+                # Check for line specific CVEs
+                line_cves = re.findall(r'CVE-\d{4}-\d{4,8}', line, re.IGNORECASE)
+                line_cve_str = ", ".join(list(set([c.upper() for c in line_cves]))) if line_cves else cve_str
+
+                vulns.append({
+                    "title": title,
+                    "severity": "Medium",
+                    "description": desc,
+                    "mitre_attack": "T1190",  # Exploit Public-Facing Application
+                    "cve": line_cve_str,
+                    "initial_cvss": 5.5
+                })
+
+    elif tool == "sqlmap" or "sqlmap" in tool:
+        lower_out = output.lower()
+        if "sql injection" in lower_out or "payload:" in lower_out or "vulnerable" in lower_out:
+            title = "SQL Injection Vulnerability Detected"
+            desc = "SQLmap successfully identified a SQL Injection vulnerability on the target. This vulnerability allows an attacker to control the backend database and potentially gain Command Execution."
+            vulns.append({
+                "title": title,
+                "severity": "Critical",
+                "description": desc + f"\n\nRaw SQLmap log sample:\n{output[:1000]}",
+                "mitre_attack": "T1190",  # Exploit Public-Facing Application
+                "cve": cve_str if cve_str else None,
+                "initial_cvss": 9.0
+            })
+
+    elif "dependency-check" in tool or "dependency" in tool:
+        title = "Vulnerable Third-Party Library / Dependency"
+        desc = "Software dependency analysis identified libraries containing publicly disclosed security vulnerabilities (CVEs)."
+        vulns.append({
+            "title": title,
+            "severity": "High",
+            "description": desc + f"\n\nIdentified CVEs:\n{cve_str or 'Various dependencies vulnerabilities'}",
+            "mitre_attack": "T1195",  # Supply Chain Compromise
+            "cve": cve_str or "CVE-Unknown",
+            "initial_cvss": 7.5
+        })
+
+    elif "clam" in tool or "clamav" in tool:
+        title = "Malware File / Web Shell Signatures Detected (ClamAV)"
+        desc = "Antivirus/antimalware scans detected malicious payloads or suspicious shell scripts residing on the file system."
+        vulns.append({
+            "title": title,
+            "severity": "Critical",
+            "description": desc + f"\n\nScanner details:\n{output[:1000]}",
+            "mitre_attack": "T1204",  # User Execution (Malicious File / Payload)
+            "cve": cve_str,
+            "initial_cvss": 9.5
+        })
+
+    elif "virustotal" in tool:
+        title = "Malicious Asset Flagged by VirusTotal API"
+        desc = "Known malware file hashes or suspicious communication indicators were analyzed and confirmed malicious by VirusTotal scanners."
+        vulns.append({
+            "title": title,
+            "severity": "Critical",
+            "description": desc + f"\n\nVirusTotal Analysis output details:\n{output[:1200]}",
+            "mitre_attack": "T1105",  # Ingress Tool Transfer (C2 / Malicious payload retrieval)
+            "cve": cve_str,
+            "initial_cvss": 9.0
+        })
+
+    else:
+        # Fallback generic parsing for custom tool commands or unknown tools
+        lower_out = output.lower()
+        if "critical" in lower_out or "high" in lower_out or "vulnerability" in lower_out or "exploit" in lower_out or "vulnerable" in lower_out:
+            title = f"{tool.capitalize()} Security Finding"
+            desc = f"Security scan tool '{tool}' identified a significant finding on the target system.\n\nRaw Finding details snippet:\n{output[:1000]}"
+            severity = "High" if "critical" in lower_out or "high" in lower_out else "Medium"
+            initial_cvss = 8.0 if severity == "High" else 5.5
+            vulns.append({
+                "title": title,
+                "severity": severity,
+                "description": desc,
+                "mitre_attack": "T1210",  # Exploitation of Remote Service
+                "cve": cve_str,
+                "initial_cvss": initial_cvss
+            })
+
+    # Save to Database with CVSS adaptations
+    v_added = 0
+    for item in vulns:
+        # Check if already exists
+        exists = db.query(Vulnerability).filter_by(mission_id=mission_id, title=item["title"]).first()
+        if not exists:
+            cvss = item["initial_cvss"]
+            
+            # --- ADAPT SCORE CVSS ---
+            # Increase rating if specific CVE or Mitre Techniques are mapping
+            if item["cve"]:
+                cvss += 1.0  # +1.0 for specific verified CVEs
+            if item["mitre_attack"] in ["T1190", "T1210", "T1195"]:
+                cvss += 0.5  # +0.5 for direct public-facing exploit technique risks
+            if item["severity"] == "Critical":
+                cvss += 0.5  # Add factor for severity-verified tags
+                
+            # Limit score to [0.0 - 10.0]
+            cvss = min(max(cvss, 0.0), 10.0)
+            
+            # Recompute severity label based on updated/adapted CVSS
+            severity = item["severity"]
+            if cvss >= 9.0:
+                severity = "Critical"
+            elif cvss >= 7.0:
+                severity = "High"
+            elif cvss >= 4.0:
+                severity = "Medium"
+            elif cvss > 0.0:
+                severity = "Low"
+            else:
+                severity = "Info"
+
+            v = Vulnerability(
+                title=item["title"],
+                severity=severity,
+                description=item["description"],
+                evidence=output[:3000] if len(output) > 3000 else output,
+                cvss=round(cvss, 1),
+                mission_id=mission_id,
+                executed_by=executed_by,
+                cve=item["cve"],
+                mitre_attack=item["mitre_attack"]
+            )
+            db.add(v)
+            v_added += 1
+
+    return v_added
+
 
 def check_tool_availability(tool_name: str) -> bool:
     """Check if a tool is installed and available in the PATH."""
@@ -33,21 +207,62 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
         "sslscan", "traceroute", "enum4linux", "smbclient", "ftp", "testssl.sh",
         "amass", "theharvester", "msfconsole", "tshark", "suricata", "zaproxy", 
         "ffuf", "nuclei", "aircrack-ng", "netexec", "nxc", "sslyze", 
-        "responder", "bloodhound-python", "hashcat", "john"
+        "responder", "bloodhound-python", "hashcat", "john",
+        "clamscan", "freshclam", "dependency-check",
+        # Commercial tools (stub handling below)
+        "acunetix", "nessus-cli", "vt", "cuckoo"
     ]
-    
+
+    # Commercial/external tools that require a license or external API — return a clear stub message
+    COMMERCIAL_TOOLS = {
+        "acunetix": (
+            "[NAYT] Acunetix requires a commercial license and a running Acunetix server.\n"
+            "Please configure your Acunetix server URL and API key in the Admin Panel.\n"
+            "Manual usage: Run scans directly from your Acunetix dashboard and import results."
+        ),
+        "nessus-cli": (
+            "[NAYT] Nessus requires a Tenable license and a running Nessus server.\n"
+            "Please configure your Nessus server in the Admin Panel.\n"
+            "Manual usage: Run `nessuscli scan new --targets target --name scan_name` on the Nessus host."
+        ),
+        "vt": (
+            "[NAYT] VirusTotal CLI requires a VT API key.\n"
+            "Install: pip install vt-cli\n"
+            "Configure: export VT_API_KEY=your_key\n"
+            "Usage: vt file scan /path/to/file"
+        ),
+        "cuckoo": (
+            "[NAYT] Cuckoo Sandbox requires a full Cuckoo installation with VMs.\n"
+            "See: https://docs.cuckoosandbox.org/\n"
+            "Manual submission: cuckoo submit /path/to/malware"
+        ),
+    }
+
+    if tool in COMMERCIAL_TOOLS:
+        stub_msg = COMMERCIAL_TOOLS[tool]
+        self.update_state(state='PROGRESS', meta={'output': stub_msg})
+        return {"status": "completed", "output": stub_msg, "command": tool}
+
     if tool not in AUTHORIZED_TOOLS:
         return {"status": "error", "output": f"Tool '{tool}' is not authorized or supported."}
 
     if not check_tool_availability(tool):
-        return {"status": "error", "output": f"Tool '{tool}' is not installed in the container backend."}
+        install_hint = ""
+        if tool == "clamscan":
+            install_hint = "\nHint: Install with: apt-get install -y clamav clamav-daemon && freshclam"
+        elif tool == "dependency-check":
+            install_hint = "\nHint: Download from https://github.com/jeremylong/DependencyCheck/releases"
+        return {"status": "error", "output": f"Tool '{tool}' is not installed in the container backend.{install_hint}"}
 
     # Construct command
     # The frontend usually sends the full command line arguments in 'options' (including the target)
     cmd = [tool] + options.split()
 
+    # Nikto expects a host argument via -h / -host; a bare positional URL is rejected.
+    if tool == "nikto" and len(cmd) == 1:
+        cmd = ["nikto", "-h", target, "-ask", "no", "-nointeractive"]
     # Just in case options is empty (shouldn't happen with current frontend logic, but for safety)
-    if len(cmd) == 1:
+    elif len(cmd) == 1:
         cmd.append(target)
 
     logger.info(f"Executing command: {' '.join(cmd)}")

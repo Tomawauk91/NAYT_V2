@@ -12,6 +12,8 @@ class VulnerabilityBase(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     executed_by: Optional[str] = "Automated Scan"
+    cve: Optional[str] = None
+    mitre_attack: Optional[str] = None
 
 class VulnerabilityCreate(VulnerabilityBase):
     pass
@@ -115,3 +117,23 @@ class VulnerabilityUpdate(BaseModel):
     description: Optional[str] = None
     status: Optional[str] = None
     cvss: Optional[float] = None
+    cve: Optional[str] = None
+    mitre_attack: Optional[str] = None
+
+class AskQuestionRequest(BaseModel):
+    question: str
+    context: Optional[str] = None
+
+
+class ChatMessageCreate(BaseModel):
+    message: str
+
+
+class ChatMessageResponse(BaseModel):
+    id: int
+    username: str
+    message: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

@@ -185,7 +185,21 @@ export const translations = {
     historyCleared: "History cleared",
     clearError: "Error clearing history",
     editCmd: "Edit command",
-    client: "Client"
+    client: "Client",
+
+    // File Scan
+    fileScanTab: "File Scan",
+    fileScanTitle: "File Malware Scan",
+    fileScanDesc: "Upload a file to scan it with the ClamAV / VirusTotal backend pipeline. Results are saved to the mission findings.",
+    chooseFile: "Choose File",
+    startScan: "Scan File",
+    scanning: "Scanning...",
+    noFileSelected: "No file selected.",
+    fileScanStarted: "File scan started.",
+    fileScanDone: "File scan completed.",
+    fileScanError: "File scan failed.",
+    confirmDelete: "Are you sure you want to delete this mission?",
+    delete: "Delete",
   },
   fr: {
     // Navigation & General
@@ -371,6 +385,20 @@ export const translations = {
     historyCleared: "Historique nettoyé",
     clearError: "Erreur lors du nettoyage",
     editCmd: "Modifier la commande",
-    client: "Client"
+    client: "Client",
+
+    // File Scan
+    fileScanTab: "Scan Fichier",
+    fileScanTitle: "Scan Malware de Fichier",
+    fileScanDesc: "Téléversez un fichier pour le scanner via le pipeline ClamAV / VirusTotal du backend. Les résultats sont enregistrés dans les findings de la mission.",
+    chooseFile: "Choisir un Fichier",
+    startScan: "Scanner le Fichier",
+    scanning: "Scan en cours...",
+    noFileSelected: "Aucun fichier sélectionné.",
+    fileScanStarted: "Scan fichier démarré.",
+    fileScanDone: "Scan fichier terminé.",
+    fileScanError: "Échec du scan fichier.",
+    confirmDelete: "Voulez-vous vraiment supprimer cette mission ?",
+    delete: "Supprimer",
   }
 };

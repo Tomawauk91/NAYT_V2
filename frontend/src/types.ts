@@ -29,6 +29,9 @@ export interface Vulnerability {
   evidence?: string;
   criticality?: Criticality;
   severity?: string;
+  cvss?: number;
+  cve?: string;
+  mitre_attack?: string;
   status?: Status;
   dateFound?: string;
   created_at?: string;
@@ -69,7 +72,7 @@ export interface User {
 
 export interface Notification {
   id: string;
-  type: 'success' | 'error';
+  type: 'success' | 'error' | 'info';
   message: string;
   duration?: number;
 }
@@ -78,4 +81,11 @@ export interface IpRange {
   id: string;
   cidr: string;
   description: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  username: string;
+  message: string;
+  created_at: string;
 }

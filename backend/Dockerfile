@@ -49,6 +49,8 @@ RUN apt-get update && apt-get install -y \
     crackmapexec \
     netexec \
     responder \
+    clamav \
+    clamav-daemon \
     hashcat
 
 # Install testssl.sh manually

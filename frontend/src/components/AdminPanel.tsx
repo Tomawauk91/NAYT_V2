@@ -9,10 +9,12 @@ interface AdminPanelProps {
   users: User[];
   setUsers: (users: User[]) => void;
   lang: Language;
+  userRole?: string;
 }
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers, lang }) => {
+export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers, lang, userRole }) => {
   const t = translations[lang];
+    const canManageConfig = userRole === Role.ADMIN || userRole === 'Admin' || userRole === 'admin';
   const [activeTab, setActiveTab] = useState<'users' | 'config'>('users');
   const [ips, setIps] = useState<IpRange[]>([]);
   const [apiKey, setApiKey] = useState('');
@@ -219,15 +221,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
             <UserPlus size={16} /> {t.userMgmt}
             {activeTab === 'users' && <span className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600 dark:bg-blue-400 rounded-t-full animate-scaleIn" />}
         </button>
-        <button
-            onClick={() => setActiveTab('config')}
-            className={`pb-4 text-sm font-medium transition-colors relative flex items-center gap-2 ${
-              activeTab === 'config' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
-            }`}
-        >
-            <Globe size={16} /> System Config
-            {activeTab === 'config' && <span className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600 dark:bg-blue-400 rounded-t-full animate-scaleIn" />}
-        </button>
+                {canManageConfig && (
+                    <button
+                            onClick={() => setActiveTab('config')}
+                            className={`pb-4 text-sm font-medium transition-colors relative flex items-center gap-2 ${
+                                activeTab === 'config' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+                            }`}
+                    >
+                            <Globe size={16} /> System Config
+                            {activeTab === 'config' && <span className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600 dark:bg-blue-400 rounded-t-full animate-scaleIn" />}
+                    </button>
+                )}
       </div>
 
       {activeTab === 'users' && (

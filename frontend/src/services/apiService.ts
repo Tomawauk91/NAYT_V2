@@ -215,7 +215,7 @@ export const toolsService = {
       return await response.json();
   },
   
-  async resetPassword(id: number, password: string) {
+  async resetPassword(id: number | string, password: string) {
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/users/${id}/reset-password`, {
           method: 'PUT',
@@ -407,5 +407,80 @@ export const toolsService = {
     });
     if (!response.ok) throw new Error('Failed to delete vulnerability');
     return await response.json();
+  },
+
+  // File scan (upload)
+  async scanFile(file: File, missionId: number): Promise<{ task_id: string; status: string }> {
+    const token = localStorage.getItem('token');
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('mission_id', String(missionId));
+    const response = await fetch(`${API_BASE_URL}/scan/file`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: formData,
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`File scan failed: ${errText}`);
+    }
+    return await response.json();
+  },
+
+  // Google Translate (free public API, no key required)
+  async translate(text: string, targetLang: string): Promise<string> {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`;
+    const response = await fetch(url);
+    if (!response.ok) return text;
+    const data = await response.json();
+    return data?.[0]?.map((chunk: any[]) => chunk[0]).join('') ?? text;
+  },
+
+  // Ask local AI (ollama / backend /ask endpoint)
+  async askLocalAI(question: string, context: string = ''): Promise<string> {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_BASE_URL}/ask`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ question, context }),
+    });
+    if (!response.ok) throw new Error('AI request failed');
+    const data = await response.json();
+    return data.answer ?? '';
+  },
+
+  async getChatMessages(limit: number = 100) {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_BASE_URL}/chat/messages?limit=${limit}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    if (!response.ok) throw new Error('Failed to fetch chat messages');
+    return await response.json();
+  },
+
+  async sendChatMessage(message: string) {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_BASE_URL}/chat/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ message }),
+    });
+    if (!response.ok) throw new Error('Failed to send chat message');
+    return await response.json();
+  },
+
+  getChatWebSocketUrl(): string | null {
+    const token = localStorage.getItem('token');
+    if (!token) return null;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}/api/ws/chat?token=${encodeURIComponent(token)}`;
   }
 };

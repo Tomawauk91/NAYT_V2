@@ -61,6 +61,8 @@ class Vulnerability(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     executed_by = Column(String, default="Automated Scan")
+    cve = Column(String, nullable=True)  # ex: "CVE-2021-34527"
+    mitre_attack = Column(String, nullable=True)  # ex: "T1190"
     
     mission = relationship("Mission", back_populates="vulnerabilities")
 
@@ -87,3 +89,11 @@ class ScanTask(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     mission = relationship("Mission")
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, index=True, nullable=False)
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)

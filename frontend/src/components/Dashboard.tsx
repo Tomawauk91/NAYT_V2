@@ -6,6 +6,7 @@ import { translations } from '../translations';
 interface DashboardProps {
   missions: Mission[];
   lang: Language;
+  userRole?: string;
 }
 
 const COLORS = {
