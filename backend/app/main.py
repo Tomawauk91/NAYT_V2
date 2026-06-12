@@ -1,10 +1,11 @@
-from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Query, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
 from pydantic import BaseModel
 import os
+import uuid
 import threading
 from datetime import datetime
 from docxtpl import DocxTemplate
@@ -359,6 +360,62 @@ def trigger_custom_scan(scan: schemas.CustomCommandRequest, db: Session = Depend
     db_task = models.ScanTask(id=task.id, mission_id=scan.mission_id, task_type='custom', tool="custom", command=scan.command)
     db.add(db_task)
     db.commit()
+    return {"task_id": task.id, "status": "submitted"}
+
+
+@app.post("/scan/file")
+async def trigger_file_scan(
+    file: UploadFile = File(...),
+    mission_id: int = Form(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
+    if not mission:
+        raise HTTPException(status_code=404, detail="Mission not found")
+
+    max_upload_size = int(os.getenv("MAX_UPLOAD_SIZE_BYTES", str(50 * 1024 * 1024)))
+    upload_dir = "/tmp/nayt_uploads"
+    os.makedirs(upload_dir, exist_ok=True)
+
+    safe_filename = os.path.basename(file.filename or "uploaded.bin")
+    stored_name = f"{uuid.uuid4().hex}_{safe_filename}"
+    stored_path = os.path.join(upload_dir, stored_name)
+
+    written = 0
+    try:
+        with open(stored_path, "wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > max_upload_size:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large. Maximum allowed size is {max_upload_size // (1024 * 1024)} MB.",
+                    )
+                out.write(chunk)
+    except HTTPException:
+        try:
+            os.remove(stored_path)
+        except Exception:
+            pass
+        raise
+    except Exception as e:
+        try:
+            os.remove(stored_path)
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"Failed to store uploaded file: {e}")
+    finally:
+        await file.close()
+
+    task = tasks.run_file_scan_task.delay(stored_path, safe_filename, mission_id, current_user.username)
+    db_task = models.ScanTask(id=task.id, mission_id=mission_id, task_type='manual', tool='file-scan', command=safe_filename)
+    db.add(db_task)
+    db.commit()
+
     return {"task_id": task.id, "status": "submitted"}
 
 @app.get("/missions/{mission_id}/active-tasks")

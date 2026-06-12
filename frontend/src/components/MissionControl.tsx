@@ -52,6 +52,15 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
   const [isFileScanRunning, setIsFileScanRunning] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+    const BONUS_TOOLS = [
+        { name: 'ClamAV', desc: 'Virus / Web Shell Scanner', cmd: 'clamscan -r /app/backend/app --max-filesize=50M --max-scansize=100M' },
+        { name: 'VirusTotal API', desc: 'Check Suspicious Hashes', cmd: 'vt file scan /app/backend/requirements.txt' },
+        { name: 'Cuckoo Sandbox', desc: 'Analyze suspicious malware', cmd: 'cuckoo submit /app/backend/requirements.txt' },
+        { name: 'Acunetix', desc: 'Web Vuln Scan', cmd: `acunetix --scan http://${mission.target}${targetPort ? ':' + targetPort : ''}` },
+        { name: 'Nessus CLI', desc: 'Infra Vuln Scan', cmd: `nessus-cli --target ${mission.target}` },
+        { name: 'Dependency-Check', desc: 'Dependency Checker', cmd: 'dependency-check --project NAYT_SaaS --scan . --log ./dep-check.log' },
+    ];
+
   useEffect(() => {
     const updateElapsedTime = () => {
         if (!mission.created_at) {
@@ -112,12 +121,6 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
       { id: "zap", label: "ZAP Quick Scan" },
       { id: "ffuf", label: "Ffuf Web Fuzzing" },
       { id: "netexec", label: "NetExec SMB Check" },
-      { id: "acunetix", label: "Acunetix Web Scan" },
-      { id: "nessus-cli", label: "Nessus Infra Scan" },
-      { id: "dependency-check", label: "Dependency-Check (SaaS)" },
-      { id: "clamscan", label: "ClamAV Malware Scan" },
-      { id: "vt", label: "VirusTotal File Check" },
-      { id: "cuckoo", label: "Cuckoo Sandbox" },
   ];
 
   const toggleAutoTool = (toolId: string) => {
@@ -549,6 +552,43 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
     }
   };
 
+    const runBonusTool = async (toolName: string, command: string) => {
+        if (isFileScanRunning) return;
+        setIsFileScanRunning(true);
+        setFileScanOutput(prev => [...prev, `root@pentest-box:~# ${command}`]);
+        try {
+            const tool = command.trim().split(' ')[0].toLowerCase();
+            const options = command.trim().substring(tool.length).trim();
+            const { task_id } = await toolsService.runScan(tool, mission.target, options, mission.id);
+            setFileScanOutput(prev => [...prev, `[+] Task submitted with ID: ${task_id}`]);
+
+            const poll = setInterval(async () => {
+                try {
+                    const status = await toolsService.getScanStatus(task_id);
+                    if (status.status === 'SUCCESS') {
+                        clearInterval(poll);
+                        setIsFileScanRunning(false);
+                        const out = status.result?.output ?? 'No output.';
+                        setFileScanOutput(prev => [...prev, ...out.split('\n')]);
+                        notify('success', `${toolName} finished.`);
+                    } else if (status.status === 'FAILURE') {
+                        clearInterval(poll);
+                        setIsFileScanRunning(false);
+                        setFileScanOutput(prev => [...prev, `[!] ${toolName} failed.`]);
+                        notify('error', `${toolName} failed.`);
+                    }
+                } catch {
+                    clearInterval(poll);
+                    setIsFileScanRunning(false);
+                }
+            }, 2500);
+        } catch (e: any) {
+            setIsFileScanRunning(false);
+            setFileScanOutput(prev => [...prev, `[!] Failed to start ${toolName}: ${e.message}`]);
+            notify('error', `Failed to start ${toolName}.`);
+        }
+    };
+
   const [reportEngine, setReportEngine] = useState('docx');
 
   useEffect(() => {
@@ -787,17 +827,6 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                                     { name: 'FTP', label: t.ftpBtn, desc: t.ftpDesc, cmd: `ftp -n ${mission.target}`, color: 'group-hover:text-blue-500' },
                                     { name: 'Responder', label: "Responder", desc: "Analyze Mode", cmd: `responder -I eth0 -A`, color: 'group-hover:text-red-500' },
                                     { name: 'BloodHound', label: "BloodHound", desc: "AD Collection", cmd: `bloodhound-python -u 'User' -p 'P@ssword!' -d ${mission.target} -c All`, color: 'group-hover:text-blue-500' },
-                                ]
-                            },
-                            {
-                                groupName: 'Malware & Forensics (Bonus)',
-                                tools: [
-                                    { name: 'ClamAV', label: 'ClamAV', desc: 'Virus / Web Shell Scanner', cmd: 'clamscan -r /app/backend/app --max-filesize=50M --max-scansize=100M', color: 'group-hover:text-emerald-500' },
-                                    { name: 'VirusTotal API', label: 'VirusTotal', desc: 'Check Suspicious Hashes', cmd: 'vt file scan /app/backend/requirements.txt', color: 'group-hover:text-emerald-500' },
-                                    { name: 'Cuckoo Sandbox', label: 'Cuckoo Sandbox', desc: 'Analyze suspicious malware', cmd: 'cuckoo submit /app/backend/requirements.txt', color: 'group-hover:text-emerald-500' },
-                                    { name: 'Acunetix', label: 'Acunetix', desc: 'Web Vuln Scan', cmd: `acunetix --scan http://${mission.target}${targetPort ? ':' + targetPort : ''}`, color: 'group-hover:text-orange-500' },
-                                    { name: 'Nessus CLI', label: 'Nessus CLI', desc: 'Infra Vuln Scan', cmd: `nessus-cli --target ${mission.target}`, color: 'group-hover:text-orange-500' },
-                                    { name: 'Dependency-Check', label: 'OWASP Dependency-Check', desc: 'Dependency Checker', cmd: 'dependency-check --project NAYT_SaaS --scan . --log ./dep-check.log', color: 'group-hover:text-amber-500' },
                                 ]
                             },
                             {
@@ -1194,6 +1223,27 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                 </button>
               </div>
             </div>
+
+                        <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 transition-colors">
+                            <h4 className="text-base font-semibold text-slate-900 dark:text-white mb-3">Bonus Tools</h4>
+                            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                                Advanced tools are available only in this tab, as requested.
+                            </p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {BONUS_TOOLS.map((tool) => (
+                                    <button
+                                        key={tool.name}
+                                        disabled={isFileScanRunning}
+                                        onClick={() => runBonusTool(tool.name, tool.cmd)}
+                                        className="text-left bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-violet-400 dark:hover:border-violet-600 rounded-lg p-3 transition-colors disabled:opacity-50"
+                                    >
+                                        <div className="text-sm font-semibold text-slate-900 dark:text-white">{tool.name}</div>
+                                        <div className="text-xs text-slate-500 dark:text-slate-400">{tool.desc}</div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
             {fileScanOutput.length > 0 && (
               <div className="bg-slate-950 rounded-xl border border-slate-800 p-4 font-mono text-sm max-h-80 overflow-y-auto">
                 <div className="text-slate-500 mb-2"># ClamAV / VT Scan Output</div>

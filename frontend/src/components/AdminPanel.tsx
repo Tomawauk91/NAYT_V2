@@ -18,6 +18,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
   const [activeTab, setActiveTab] = useState<'users' | 'config'>('users');
   const [ips, setIps] = useState<IpRange[]>([]);
   const [apiKey, setApiKey] = useState('');
+    const [vtApiKey, setVtApiKey] = useState('');
   const [reportType, setReportType] = useState('docx');
   const [webhookDiscord, setWebhookDiscord] = useState("");
   const [webhookTeams, setWebhookTeams] = useState("");
@@ -34,6 +35,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
       try {
           const keys = await Promise.all([
              toolsService.getConfig('gemini_api_key'),
+             toolsService.getConfig('virustotal_api_key'),
              toolsService.getConfig('report_type'),
              toolsService.getConfig('webhook_discord'),
              toolsService.getConfig('webhook_slack'),
@@ -41,11 +43,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
              toolsService.getConfig('alert_cvss_threshold')
           ]);
           setApiKey(keys[0].value || '');
-          setReportType(keys[1].value || 'docx');
-          setWebhookDiscord(keys[2]?.value || '');
-          setWebhookSlack(keys[3]?.value || '');
-          setWebhookTeams(keys[4]?.value || '');
-          setCvssThreshold(keys[5]?.value || '9.0');
+          setVtApiKey(keys[1].value || '');
+          setReportType(keys[2].value || 'docx');
+          setWebhookDiscord(keys[3]?.value || '');
+          setWebhookSlack(keys[4]?.value || '');
+          setWebhookTeams(keys[5]?.value || '');
+          setCvssThreshold(keys[6]?.value || '9.0');
       } catch (e) {
           console.error(e);
       }
@@ -54,6 +57,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
   const saveConfig = async () => {
       try {
           await toolsService.saveConfig('gemini_api_key', apiKey);
+          await toolsService.saveConfig('virustotal_api_key', vtApiKey);
           await toolsService.saveConfig('report_type', reportType);
           await toolsService.saveConfig('webhook_discord', webhookDiscord);
           await toolsService.saveConfig('webhook_slack', webhookSlack);
@@ -455,6 +459,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
                         </button>
                       </div>
                       <p className="text-xs text-slate-500 mt-2">This key will be used by the backend to generate AI executive summaries.</p>
+                  </div>
+
+                  <div className="mb-8">
+                      <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">VirusTotal Configuration</h4>
+                      <div className="flex gap-2">
+                        <input
+                            type="password"
+                            value={vtApiKey}
+                            onChange={(e) => setVtApiKey(e.target.value)}
+                            className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                            placeholder="Enter your VirusTotal API Key"
+                        />
+                        <button
+                            onClick={saveConfig}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+                        >
+                            Save
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-2">Used automatically by vt scans (no manual export VT_API_KEY needed).</p>
                   </div>
 
                   <div className="mb-8">

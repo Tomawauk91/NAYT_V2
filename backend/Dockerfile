@@ -63,6 +63,9 @@ RUN netexec smb 127.0.0.1 --dry-run || true
 # Initialize Suricata rules
 RUN suricata-update || echo "Suricata update failed, continuing anyway"
 
+# Best effort: pre-load ClamAV signatures at build time.
+RUN mkdir -p /var/lib/clamav && freshclam || true
+
 # Unzip rockyou for easy usage
 RUN gunzip /usr/share/wordlists/rockyou.txt.gz || true
 
@@ -74,10 +77,9 @@ ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# Install Python dependencies and tools
+# Install Python dependencies (single pass to avoid duplicate installs)
 COPY requirements.txt .
-RUN pip install --no-cache-dir bloodhound sslyze gvm-tools && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy project
 COPY . .

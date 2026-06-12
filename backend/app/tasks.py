@@ -1,15 +1,72 @@
 import subprocess
 import shutil
+from pathlib import Path
 from .celery_app import celery_app
 import logging
 import redis
 import json
 import os
 import re
+import requests
 
 logger = logging.getLogger(__name__)
 
 redis_client = redis.Redis.from_url(os.getenv('REDIS_URL', 'redis://redis:6379/0'))
+
+
+def get_system_config_value(key: str) -> str:
+    """Read a system config value from DB with a safe fallback."""
+    try:
+        from .database import SessionLocal
+        from .models import SystemConfig
+
+        db = SessionLocal()
+        conf = db.query(SystemConfig).filter(SystemConfig.key == key).first()
+        return (conf.value or "").strip() if conf else ""
+    except Exception as e:
+        logger.warning(f"Unable to read system config '{key}': {e}")
+        return ""
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+
+def vt_scan_file_via_api(file_path: str, api_key: str) -> tuple[bool, str]:
+    """Upload a file to VirusTotal API and return (success, output)."""
+    if not os.path.exists(file_path):
+        return False, f"[!] File not found: {file_path}"
+    if not api_key:
+        return False, "[!] VirusTotal API key is missing."
+
+    url = "https://www.virustotal.com/api/v3/files"
+    headers = {"x-apikey": api_key}
+
+    try:
+        with open(file_path, "rb") as f:
+            files = {"file": (os.path.basename(file_path), f)}
+            resp = requests.post(url, headers=headers, files=files, timeout=120)
+
+        if resp.status_code not in (200, 201):
+            body = (resp.text or "")[:1200]
+            return False, (
+                f"[!] VirusTotal API error: HTTP {resp.status_code}\n"
+                f"{body}"
+            )
+
+        data = resp.json() if resp.content else {}
+        analysis_id = data.get("data", {}).get("id")
+        if analysis_id:
+            return True, (
+                "[+] VirusTotal file upload accepted.\n"
+                f"Analysis ID: {analysis_id}\n"
+                "Use VT UI/API to fetch final verdict once analysis completes."
+            )
+
+        return True, "[+] VirusTotal file upload accepted."
+    except Exception as e:
+        return False, f"[!] VirusTotal request failed: {e}"
 
 def parse_and_save_vulnerabilities(tool: str, output: str, mission_id: int, executed_by: str, db) -> int:
     """
@@ -225,12 +282,6 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
             "Please configure your Nessus server in the Admin Panel.\n"
             "Manual usage: Run `nessuscli scan new --targets target --name scan_name` on the Nessus host."
         ),
-        "vt": (
-            "[NAYT] VirusTotal CLI requires a VT API key.\n"
-            "Install: pip install vt-cli\n"
-            "Configure: export VT_API_KEY=your_key\n"
-            "Usage: vt file scan /path/to/file"
-        ),
         "cuckoo": (
             "[NAYT] Cuckoo Sandbox requires a full Cuckoo installation with VMs.\n"
             "See: https://docs.cuckoosandbox.org/\n"
@@ -243,8 +294,39 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
         self.update_state(state='PROGRESS', meta={'output': stub_msg})
         return {"status": "completed", "output": stub_msg, "command": tool}
 
+    vt_api_key = ""
+    if tool == "vt":
+        vt_api_key = os.getenv("VT_API_KEY", "").strip() or get_system_config_value("virustotal_api_key")
+        if not vt_api_key:
+            stub_msg = (
+                "[NAYT] VirusTotal requires an API key.\n"
+                "Configure it in Admin Panel -> System Config -> VirusTotal API Key,\n"
+                "or set VT_API_KEY as environment variable.\n"
+                "Usage: vt file scan /path/to/file"
+            )
+            self.update_state(state='PROGRESS', meta={'output': stub_msg})
+            return {"status": "completed", "output": stub_msg, "command": tool}
+
     if tool not in AUTHORIZED_TOOLS:
         return {"status": "error", "output": f"Tool '{tool}' is not authorized or supported."}
+
+    if tool == "vt":
+        tokens = options.split()
+        if len(tokens) < 3 or tokens[0] != "file" or tokens[1] != "scan":
+            msg = (
+                "[NAYT] Supported VT syntax: vt file scan /path/to/file\n"
+                "Example: vt file scan /app/backend/requirements.txt"
+            )
+            return {"status": "error", "output": msg}
+
+        file_path = tokens[2]
+        ok, vt_output = vt_scan_file_via_api(file_path, vt_api_key)
+        self.update_state(state='PROGRESS', meta={'output': vt_output})
+        return {
+            "status": "completed" if ok else "error",
+            "command": f"vt file scan {file_path}",
+            "output": vt_output,
+        }
 
     if not check_tool_availability(tool):
         install_hint = ""
@@ -258,6 +340,30 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
     # The frontend usually sends the full command line arguments in 'options' (including the target)
     cmd = [tool] + options.split()
 
+    if tool == "clamscan":
+        clam_db_dir = Path("/var/lib/clamav")
+        has_signatures = any(clam_db_dir.glob("*.cvd")) or any(clam_db_dir.glob("*.cld"))
+        if not has_signatures and check_tool_availability("freshclam"):
+            try:
+                fresh_proc = subprocess.run(
+                    ["freshclam"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    timeout=180,
+                )
+                bootstrap_output = (fresh_proc.stdout or "").strip()
+                if bootstrap_output:
+                    self.update_state(
+                        state='PROGRESS',
+                        meta={
+                            'output': f"[NAYT] Initializing ClamAV signatures...\n{bootstrap_output}\n",
+                            'cmd': ["freshclam"],
+                        },
+                    )
+            except Exception as e:
+                logger.warning(f"Unable to bootstrap ClamAV signatures: {e}")
+
     # Nikto expects a host argument via -h / -host; a bare positional URL is rejected.
     if tool == "nikto" and len(cmd) == 1:
         cmd = ["nikto", "-h", target, "-ask", "no", "-nointeractive"]
@@ -269,13 +375,18 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
     self.update_state(state='PROGRESS', meta={'cmd': cmd, 'output': 'Starting scan...'})
 
     try:
+        process_env = os.environ.copy()
+        if tool == "vt" and vt_api_key:
+            process_env["VT_API_KEY"] = vt_api_key
+
         # Run command with Popen to stream output
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, # Merge stderr into stdout
             text=True,
-            bufsize=1 # Line buffered
+            bufsize=1, # Line buffered
+            env=process_env
         )
 
         accumulated_output = ""
@@ -386,6 +497,117 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
 
     except Exception as e:
         return {"status": "error", "output": str(e)}
+
+
+@celery_app.task(bind=True)
+def run_file_scan_task(self, file_path: str, original_name: str, mission_id: int = None, executed_by: str = "Automated Scan"):
+    """Scan an uploaded file with ClamAV and optionally VirusTotal API."""
+    safe_name = original_name or os.path.basename(file_path)
+    output_lines = [
+        f"[NAYT] File scan started for: {safe_name}",
+        f"[NAYT] Stored path: {file_path}",
+    ]
+
+    def _emit_progress() -> None:
+        joined = "\n".join(output_lines) + "\n"
+        self.update_state(state='PROGRESS', meta={'output': joined})
+
+    _emit_progress()
+
+    if not os.path.exists(file_path):
+        err = f"Uploaded file not found: {file_path}"
+        return {"status": "error", "output": err}
+
+    # Ensure ClamAV signatures are present.
+    clam_db_dir = Path("/var/lib/clamav")
+    has_signatures = any(clam_db_dir.glob("*.cvd")) or any(clam_db_dir.glob("*.cld"))
+    if not has_signatures and check_tool_availability("freshclam"):
+        output_lines.append("[NAYT] ClamAV signatures missing, running freshclam...")
+        _emit_progress()
+        try:
+            bootstrap = subprocess.run(
+                ["freshclam"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=240,
+            )
+            if bootstrap.stdout:
+                output_lines.append(bootstrap.stdout.strip())
+                _emit_progress()
+        except Exception as e:
+            output_lines.append(f"[!] freshclam failed: {e}")
+            _emit_progress()
+
+    if not check_tool_availability("clamscan"):
+        return {
+            "status": "error",
+            "output": "Tool 'clamscan' is not installed in the backend container.",
+        }
+
+    try:
+        clam_cmd = ["clamscan", "--no-summary", file_path]
+        output_lines.append(f"$ {' '.join(clam_cmd)}")
+        _emit_progress()
+
+        clam_proc = subprocess.Popen(
+            clam_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        clam_output = ""
+        for line in clam_proc.stdout:
+            clam_output += line
+            clean = line.rstrip("\n")
+            if clean:
+                output_lines.append(clean)
+                _emit_progress()
+        clam_proc.wait()
+
+        if clam_proc.returncode not in [0, 1]:
+            output_lines.append(f"[!] ClamAV exited with code {clam_proc.returncode}")
+
+        # Optional VirusTotal API check.
+        vt_api_key = os.getenv("VT_API_KEY", "").strip() or get_system_config_value("virustotal_api_key")
+        if vt_api_key:
+            output_lines.append(f"$ vt file scan {file_path}")
+            _emit_progress()
+            ok, vt_output = vt_scan_file_via_api(file_path, vt_api_key)
+            output_lines.extend(vt_output.split("\n"))
+            _emit_progress()
+            if not ok:
+                output_lines.append("[!] VirusTotal scan step failed.")
+        else:
+            output_lines.append("[i] VirusTotal skipped (virustotal_api_key not configured).")
+
+        final_output = "\n".join(output_lines)
+
+        if mission_id is not None:
+            try:
+                from .database import SessionLocal
+
+                db = SessionLocal()
+                parse_and_save_vulnerabilities("clamav-file", final_output, mission_id, executed_by, db)
+                db.commit()
+            except Exception as e:
+                logger.error(f"Error saving file scan finding: {e}")
+            finally:
+                db.close()
+
+        return {
+            "status": "completed",
+            "command": f"file_scan:{safe_name}",
+            "output": final_output,
+        }
+    except Exception as e:
+        return {"status": "error", "output": str(e)}
+    finally:
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
 
 @celery_app.task(bind=True)
 def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port: str = "", mission_id: int = None, executed_by: str = "Automated Scan"):

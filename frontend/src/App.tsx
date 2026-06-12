@@ -468,11 +468,13 @@ export default function App() {
           </div>
 
           <div className="flex justify-center mb-6">
-            <div className="p-4 bg-violet-100 dark:bg-violet-600/10 rounded-full border border-violet-200 dark:border-violet-500/20">
-                                <img src="/nayt-logo.png" alt="NAYT logo" className="w-12 h-12 object-contain" />
+                        <div className="p-1.5 bg-violet-100 dark:bg-violet-600/10 rounded-full border border-violet-200 dark:border-violet-500/20">
+                                                                <img src="/nayt-logo.png" alt="NAYT logo" className="w-14 h-14 rounded-full object-cover ring-2 ring-violet-300/60 dark:ring-violet-500/40" />
             </div>
           </div>
-          <h1 className="text-3xl font-bold text-center text-slate-900 dark:text-white mb-2">NAYT - Toolbox</h1>
+                    <h1 className="text-3xl font-bold text-center text-slate-900 dark:text-white mb-2">
+                        <span className="bg-gradient-to-r from-violet-500 to-blue-500 bg-clip-text text-transparent">NAYT</span> - Toolbox
+                    </h1>
           <p className="text-center text-slate-500 dark:text-slate-400 mb-8">{t.secureGateway}</p>
           
           <form onSubmit={handleLogin} className="space-y-4">
@@ -580,8 +582,8 @@ export default function App() {
       `}>
         <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-3">
-                <img src="/nayt-logo.png" alt="NAYT logo" className="w-7 h-7 object-contain" />
-                <h1 className="font-bold text-slate-900 dark:text-white tracking-tight">NAYT</h1>
+                <img src="/nayt-logo.png" alt="NAYT logo" className="w-8 h-8 rounded-full object-cover ring-1 ring-violet-300/70 dark:ring-violet-500/40" />
+                <h1 className="font-bold tracking-tight bg-gradient-to-r from-violet-500 to-blue-500 bg-clip-text text-transparent">NAYT</h1>
             </div>
             <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors">
                 <X size={24} />
