@@ -117,6 +117,8 @@ export const VulnerabilitiesView: React.FC<FunctionalViewProps> = ({ missions, l
                                         <tr>
                                             <th className="px-6 py-4">Vulnerability</th>
                                             <th className="px-6 py-4">Severity</th>
+                                            <th className="px-6 py-4">CVE</th>
+                                            <th className="px-6 py-4">MITRE ATT&CK</th>
                                             <th className="px-6 py-4">{t.status || 'Status'}</th>
                                             <th className="px-6 py-4">{t.date || 'Date'}</th>
                                             <th className="px-6 py-4 text-right">Actions</th>
@@ -131,6 +133,8 @@ export const VulnerabilitiesView: React.FC<FunctionalViewProps> = ({ missions, l
                                                         {(v.severity || v.criticality)}
                                                     </span>
                                                 </td>
+                                                <td className="px-6 py-4 text-xs font-mono text-slate-500 dark:text-slate-400">{v.cve || 'CVE-Unknown'}</td>
+                                                <td className="px-6 py-4 text-xs font-mono text-slate-500 dark:text-slate-400">{v.mitre_attack || 'T1595'}</td>
                                                 <td className="px-6 py-4">
                                                     <select 
                                                         value={v.status || "Open"}

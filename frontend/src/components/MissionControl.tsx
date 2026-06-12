@@ -1213,6 +1213,8 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                 <tr>
                   <th className="px-6 py-4">Title</th>
                   <th className="px-6 py-4">Severity</th>
+                                    <th className="px-6 py-4">CVE</th>
+                                    <th className="px-6 py-4">MITRE ATT&CK</th>
                   <th className="px-6 py-4">{t.status}</th>
                   <th className="px-6 py-4">Date & Time</th>
                   <th className="px-6 py-4">Executed By</th>
@@ -1228,6 +1230,8 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                         {v.severity || v.criticality}
                       </span>
                     </td>
+                                        <td className="px-6 py-4 text-xs font-mono text-slate-500 dark:text-slate-400">{v.cve || 'CVE-Unknown'}</td>
+                                        <td className="px-6 py-4 text-xs font-mono text-slate-500 dark:text-slate-400">{v.mitre_attack || 'T1595'}</td>
                     <td className="px-6 py-4">{v.status || "Open"}</td>
                     <td className="px-6 py-4 text-xs text-slate-500 dark:text-slate-400 font-mono">
                         {(() => {
@@ -1349,6 +1353,10 @@ export const MissionControl: React.FC<MissionControlProps> = ({ mission, onBack,
                 
                 {/* Body - Pure Terminal Look */}
                 <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar bg-[#0a0f1c] text-slate-200 font-mono text-sm leading-relaxed whitespace-pre-wrap break-all border-t border-b border-slate-800/50 shadow-inner">
+                    <div className="mb-4 pb-4 border-b border-slate-800/50 text-xs text-slate-300">
+                        <div><span className="text-slate-500">CVE:</span> {selectedVuln.cve || 'CVE-Unknown'}</div>
+                        <div><span className="text-slate-500">MITRE ATT&CK:</span> {selectedVuln.mitre_attack || 'T1595'}</div>
+                    </div>
                     <div className="mb-4 pb-4 border-b border-slate-800/50">
                         {selectedVuln.description}
                     </div>

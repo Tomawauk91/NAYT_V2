@@ -880,15 +880,17 @@ def generate_mission_report(mission_id: int, db: Session = Depends(get_db), curr
         cvss = SEVERITY_WEIGHTS.get(severity, 0.0)
         total_score += cvss
         
+        cve_value = v.cve or "CVE-Unknown"
+        mitre_value = v.mitre_attack or "T1595"
         vulns_data.append({
             "title": v.title or "Untitled",
             "severity": v.severity or "Info",
             "cvss": str(cvss),
             "status": v.status or "Open",
-            "description": (v.description or "No description") + f"\n\nCVE: {v.cve or 'N/A'}\nMITRE ATT&CK: {v.mitre_attack or 'N/A'}",
-            "cve": v.cve or "N/A",
-            "mitre_attack": v.mitre_attack or "N/A",
-            "evidence": v.evidence or ""
+            "description": (v.description or "No description") + f"\n\nCVE: {cve_value}\nMITRE ATT&CK: {mitre_value}",
+            "cve": cve_value,
+            "mitre_attack": mitre_value,
+            "evidence": f"CVE: {cve_value}\nMITRE ATT&CK: {mitre_value}\n\n{(v.evidence or '')}"
         })
 
     total_vulns = len(vulns)

@@ -9,10 +9,12 @@ import os
 import re
 import requests
 import time
+from urllib.parse import quote_plus
 
 logger = logging.getLogger(__name__)
 
 redis_client = redis.Redis.from_url(os.getenv('REDIS_URL', 'redis://redis:6379/0'))
+_exploitdb_cve_cache: dict[str, list[str]] = {}
 
 
 def get_system_config_value(key: str) -> str:
@@ -155,6 +157,132 @@ def vt_poll_final_verdict(analysis_id: str, api_key: str, max_wait_seconds: int 
 
     return "\n".join(lines)
 
+
+def default_mitre_for_tool(tool_name: str) -> str:
+    t = (tool_name or "").lower()
+    if "nmap" in t or "dns" in t or "whois" in t or "amass" in t or "whatweb" in t:
+        return "T1046"
+    if "nikto" in t or "sqlmap" in t or "zap" in t or "nuclei" in t:
+        return "T1190"
+    if "clam" in t or "virus" in t or "vt" in t:
+        return "T1204"
+    if "dependency" in t:
+        return "T1195"
+    return "T1595"
+
+
+def extract_exploitdb_queries(tool_name: str, output: str) -> list[str]:
+    """Build a short list of high-signal queries for ExploitDB correlation."""
+    queries: list[str] = []
+    lower_out = (output or "").lower()
+
+    # Tool-guided service extraction (especially useful for nmap output)
+    for line in (output or "").splitlines():
+        match = re.search(r'^(\d+)/(tcp|udp)\s+open\s+([^\s]+)(?:\s+(.*))?$', line.strip(), re.IGNORECASE)
+        if match:
+            service = (match.group(3) or "").strip()
+            version = (match.group(4) or "").strip()
+            query = f"{service} {version}".strip()
+            if query:
+                queries.append(query)
+
+    # Generic product markers commonly present in scan logs
+    products = [
+        "apache", "nginx", "openssl", "wordpress", "drupal", "joomla", "tomcat", "jetty",
+        "jenkins", "kibana", "elasticsearch", "grafana", "phpmyadmin", "samba", "openssh",
+        "mysql", "postgresql", "redis", "mongodb", "vsftpd", "proftpd", "iis", "docker",
+        "kubernetes", "confluence", "jira", "gitlab", "roundcube"
+    ]
+    for product in products:
+        if product in lower_out:
+            queries.append(product)
+
+    # Add tool name as a weak fallback signal
+    if tool_name:
+        queries.append(tool_name)
+
+    # Deduplicate while preserving order and keep calls bounded
+    unique_queries: list[str] = []
+    seen = set()
+    for q in queries:
+        nq = re.sub(r'\s+', ' ', q).strip()
+        if not nq:
+            continue
+        key = nq.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_queries.append(nq)
+
+    return unique_queries[:5]
+
+
+def fetch_cves_from_exploitdb_query(query: str) -> list[str]:
+    """Search ExploitDB and extract CVE IDs from returned HTML/JS content."""
+    cache_key = (query or "").strip().lower()
+    if not cache_key:
+        return []
+    if cache_key in _exploitdb_cve_cache:
+        return _exploitdb_cve_cache[cache_key]
+
+    url = f"https://www.exploit-db.com/search?text={quote_plus(query)}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (NAYT-V2 security scanner)",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            _exploitdb_cve_cache[cache_key] = []
+            return []
+
+        html = resp.text or ""
+        cves = sorted(set([c.upper() for c in re.findall(r'CVE-\d{4}-\d{4,8}', html, re.IGNORECASE)]))
+        _exploitdb_cve_cache[cache_key] = cves
+        return cves
+    except Exception:
+        _exploitdb_cve_cache[cache_key] = []
+        return []
+
+
+def enrich_cves_from_exploitdb(tool_name: str, output: str, existing_cves: list[str] | None = None) -> tuple[list[str], bool]:
+    """Best-effort CVE enrichment from ExploitDB based on scan logs/signatures."""
+    existing = sorted(set([c.upper() for c in (existing_cves or [])]))
+    if existing:
+        return existing, False
+
+    enabled = os.getenv("ENABLE_EXPLOITDB_ENRICHMENT", "1").strip().lower() not in ["0", "false", "no", "off"]
+    if not enabled:
+        return existing, False
+
+    all_found = set(existing)
+    enriched = False
+
+    for query in extract_exploitdb_queries(tool_name, output):
+        cves = fetch_cves_from_exploitdb_query(query)
+        if cves:
+            all_found.update(cves)
+            enriched = True
+
+    return sorted(all_found), enriched
+
+
+def summarize_cve_mitre_for_logs(tool_name: str, output: str) -> str:
+    cves = sorted(set([c.upper() for c in re.findall(r'CVE-\d{4}-\d{4,8}', output or "", re.IGNORECASE)]))
+    cves, enriched_from_exploitdb = enrich_cves_from_exploitdb(tool_name, output, cves)
+    mitre = sorted(set([m.upper() for m in re.findall(r'T\d{4}(?:\.\d{3})?', output or "", re.IGNORECASE)]))
+
+    cve_line = ", ".join(cves) if cves else "CVE-Unknown"
+    mitre_line = ", ".join(mitre) if mitre else default_mitre_for_tool(tool_name)
+    source_line = "exploitdb-correlation" if enriched_from_exploitdb else "scan-output"
+    return (
+        "[NAYT] Threat Intel Summary\n"
+        f"CVE: {cve_line}\n"
+        f"MITRE ATT&CK: {mitre_line}\n"
+        f"CVE Source: {source_line}"
+    )
+
 def parse_and_save_vulnerabilities(tool: str, output: str, mission_id: int, executed_by: str, db) -> int:
     """
     Parses output from various security tools, extracts CVE and Mitre Attack mappings,
@@ -168,22 +296,11 @@ def parse_and_save_vulnerabilities(tool: str, output: str, mission_id: int, exec
     # Generic extraction of CVEs (like CVE-YYYY-NNNNNN)
     cve_matches = re.findall(r'CVE-\d{4}-\d{4,8}', output, re.IGNORECASE)
     unique_cves = list(set([c.upper() for c in cve_matches]))
+    unique_cves, _ = enrich_cves_from_exploitdb(tool, output, unique_cves)
     cve_str = ", ".join(unique_cves) if unique_cves else None
     mitre_matches = re.findall(r'T\d{4}(?:\.\d{3})?', output, re.IGNORECASE)
     unique_mitre = list(set([m.upper() for m in mitre_matches]))
     mitre_str = ", ".join(unique_mitre) if unique_mitre else None
-
-    def default_mitre_for_tool(tool_name: str) -> str:
-        t = (tool_name or "").lower()
-        if "nmap" in t or "dns" in t or "whois" in t or "amass" in t or "whatweb" in t:
-            return "T1046"
-        if "nikto" in t or "sqlmap" in t or "zap" in t or "nuclei" in t:
-            return "T1190"
-        if "clam" in t or "virus" in t or "vt" in t:
-            return "T1204"
-        if "dependency" in t:
-            return "T1195"
-        return "T1595"
 
     # Tool specific parsing
     if tool == "nmap":
@@ -530,6 +647,10 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
             })
             
         process.wait()
+
+        intel_summary = summarize_cve_mitre_for_logs(tool, accumulated_output)
+        accumulated_output = f"{accumulated_output}\n{intel_summary}\n"
+        self.update_state(state='PROGRESS', meta={'output': accumulated_output, 'cmd': cmd})
         
 
         # --- PARSE & SAVE FINDINGS ---
@@ -612,6 +733,7 @@ def run_file_scan_task(self, file_path: str, original_name: str, mission_id: int
         else:
             output_lines.append("[i] VirusTotal skipped (virustotal_api_key not configured).")
 
+        output_lines.extend(summarize_cve_mitre_for_logs("virustotal-file", "\n".join(output_lines)).split("\n"))
         final_output = "\n".join(output_lines)
 
         if mission_id is not None:
