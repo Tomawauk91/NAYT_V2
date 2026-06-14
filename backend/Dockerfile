@@ -49,6 +49,10 @@ RUN apt-get update && apt-get install -y \
     crackmapexec \
     netexec \
     responder \
+    python3-netifaces \
+    bsdextrautils \
+    bsdmainutils \
+    seclists \
     clamav \
     clamav-daemon \
     hashcat

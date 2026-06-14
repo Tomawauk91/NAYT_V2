@@ -101,7 +101,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
 
   // Password Generator
   const generateSecurePassword = (length = 16) => {
-    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+";
+        const charset = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
     let retVal = "";
     for (let i = 0, n = charset.length; i < length; ++i) {
         retVal += charset.charAt(Math.floor(Math.random() * n));
@@ -125,7 +125,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ notify, users, setUsers,
         });
         
         setNewUser({ username: '', role: Role.VIEWER });
-        setGeneratedCreds({ username: newUser.username, password: tempPassword, role: newUser.role });
+        setGeneratedCreds({ username: newUser.username, password: tempPassword });
         notify('success', `${t.userCreated} (${newUser.username})`);
         fetchUsers(); // Refresh list
     } catch (error) {

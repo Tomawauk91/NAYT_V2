@@ -9,12 +9,43 @@ import os
 import re
 import requests
 import time
+import ipaddress
+import shlex
+import tempfile
 from urllib.parse import quote_plus
 
 logger = logging.getLogger(__name__)
 
 redis_client = redis.Redis.from_url(os.getenv('REDIS_URL', 'redis://redis:6379/0'))
 _exploitdb_cve_cache: dict[str, list[str]] = {}
+
+
+def is_private_ip_target(target: str) -> bool:
+    try:
+        return ipaddress.ip_address((target or "").strip()).is_private
+    except Exception:
+        return False
+
+
+def pick_existing_wordlist(candidates: list[str]) -> str:
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return candidates[-1]
+
+
+def build_hydra_wordlist_command(protocol: str, target: str, port: str | None = None) -> list[str]:
+    usernames = pick_existing_wordlist([
+        "/usr/share/seclists/Usernames/xato-net-10-million-usernames.txt",
+        "/usr/share/seclists/Usernames/top-usernames-shortlist.txt",
+        "/usr/share/wordlists/metasploit/unix_users.txt",
+    ])
+    passwords = "/usr/share/wordlists/rockyou.txt"
+    command = ["hydra", "-L", usernames, "-P", passwords]
+    if port:
+        command.extend(["-s", str(port)])
+    command.append(f"{protocol}://{target}")
+    return command
 
 
 def get_system_config_value(key: str) -> str:
@@ -582,7 +613,10 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
 
     # Construct command
     # The frontend usually sends the full command line arguments in 'options' (including the target)
-    cmd = [tool] + options.split()
+    try:
+        cmd = [tool] + shlex.split(options)
+    except ValueError:
+        cmd = [tool] + options.split()
 
     if tool == "clamscan":
         clam_db_dir = Path("/var/lib/clamav")
@@ -614,6 +648,48 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
     # Just in case options is empty (shouldn't happen with current frontend logic, but for safety)
     elif len(cmd) == 1:
         cmd.append(target)
+
+    # dnsrecon on some distributions still expects a domain with -r.
+    if tool == "dnsrecon" and is_private_ip_target(target):
+        if "-r" in cmd and "-d" not in cmd:
+            cmd.extend(["-d", "local"])
+        if "-r" in cmd and "-n" not in cmd:
+            cmd.extend(["-n", "127.0.0.11"])
+
+    # Avoid ZAP proxy port conflicts between concurrent runs.
+    if tool == "zaproxy":
+        if "-dir" in cmd:
+            try:
+                dir_index = cmd.index("-dir")
+                if dir_index + 1 < len(cmd):
+                    cmd[dir_index + 1] = f"/tmp/.ZAP_{self.request.id}"
+            except ValueError:
+                pass
+        else:
+            cmd.extend(["-dir", f"/tmp/.ZAP_{self.request.id}"])
+
+        if "-port" not in cmd:
+            dynamic_port = str(20000 + (int(self.request.id.replace("-", ""), 16) % 20000))
+            cmd.extend(["-port", dynamic_port])
+
+    # Execute responder with python3 script entrypoint when available.
+    if tool == "responder" and os.path.exists("/usr/share/responder/Responder.py"):
+        cmd = ["python3", "/usr/share/responder/Responder.py"] + cmd[1:]
+
+    msf_rc_path: str | None = None
+    if tool == "msfconsole" and "-x" in cmd:
+        try:
+            x_index = cmd.index("-x")
+            msf_commands = cmd[x_index + 1] if x_index + 1 < len(cmd) else ""
+            parsed_commands = [part.strip() for part in msf_commands.split(";") if part.strip()]
+            with tempfile.NamedTemporaryFile("w", delete=False, suffix=".rc") as rc_file:
+                for line in parsed_commands:
+                    rc_file.write(line + "\n")
+                msf_rc_path = rc_file.name
+            cmd = [value for value in cmd if value not in ["-x", msf_commands]]
+            cmd.extend(["-r", msf_rc_path])
+        except Exception as e:
+            logger.warning(f"Unable to translate msfconsole -x command to rc file: {e}")
 
     logger.info(f"Executing command: {' '.join(cmd)}")
     self.update_state(state='PROGRESS', meta={'cmd': cmd, 'output': 'Starting scan...'})
@@ -647,6 +723,12 @@ def run_scan_task(self, tool: str, target: str, options: str = "", mission_id: i
             })
             
         process.wait()
+
+        if msf_rc_path:
+            try:
+                os.remove(msf_rc_path)
+            except Exception:
+                pass
 
         intel_summary = summarize_cve_mitre_for_logs(tool, accumulated_output)
         accumulated_output = f"{accumulated_output}\n{intel_summary}\n"
@@ -847,16 +929,35 @@ def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port
             
         elif tool_key == "whois":
             cmds_to_run.append(("Whois", ["whois", target]))
+        elif tool_key == "hydra":
+            if is_private_ip_target(target):
+                cmds_to_run.append(("Hydra FTP Wordlist", build_hydra_wordlist_command("ftp", target, port or "21")))
+            else:
+                cmds_to_run.append(("Hydra SSH Wordlist", build_hydra_wordlist_command("ssh", target, port or "22")))
         elif tool_key == "dnsrecon":
-            cmds_to_run.append(("DNS Recon", ["dnsrecon", "-d", target]))
+            if is_private_ip_target(target):
+                cmds_to_run.append(("DNS Recon (Reverse)", ["dnsrecon", "-r", f"{target}-{target}", "-d", "local", "-n", "127.0.0.11"]))
+            else:
+                cmds_to_run.append(("DNS Recon", ["dnsrecon", "-d", target]))
         elif tool_key == "dig":
-            cmds_to_run.append(("Dig Trace", ["dig", target, "+trace"]))
+            if is_private_ip_target(target):
+                cmds_to_run.append(("Dig Reverse", ["dig", "-x", target]))
+            else:
+                cmds_to_run.append(("Dig Trace", ["dig", target, "+trace"]))
         elif tool_key == "traceroute":
             cmds_to_run.append(("Traceroute", ["traceroute", "-n", target]))
         elif tool_key == "amass":
-            cmds_to_run.append(("Amass Enum", ["amass", "enum", "-d", target]))
+            if is_private_ip_target(target):
+                overall_output += "--- AMASS ---\n[i] Skipped: Amass is not suitable for private IP targets. Use DNS reverse lookup tools instead.\n\n"
+                self.update_state(state='PROGRESS', meta={'output': overall_output, 'current_step': 'Skipping amass'})
+            else:
+                cmds_to_run.append(("Amass Enum", ["amass", "enum", "-d", target]))
         elif tool_key == "theharvester":
-            cmds_to_run.append(("theHarvester", ["theHarvester", "-d", target, "-b", "all"]))
+            if is_private_ip_target(target):
+                overall_output += "--- THEHARVESTER ---\n[i] Skipped: theHarvester is domain-oriented and not suitable for private IP targets.\n\n"
+                self.update_state(state='PROGRESS', meta={'output': overall_output, 'current_step': 'Skipping theharvester'})
+            else:
+                cmds_to_run.append(("theHarvester", ["theHarvester", "-d", target, "-b", "all"]))
             
         else:
             # Service-dependent tools
@@ -890,7 +991,7 @@ def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port
                     elif tool_key == "nuclei":
                          cmds_to_run.append((f"Nuclei ({srv_port})", ["nuclei", "-u", base_url]))
                     elif tool_key == "zap":
-                         cmds_to_run.append((f"ZAP ({srv_port})", ["zaproxy", "-cmd", "-quickurl", base_url]))
+                         cmds_to_run.append((f"ZAP ({srv_port})", ["zaproxy", "-cmd", "-dir", f"/tmp/.ZAP_{self.request.id}", "-quickurl", base_url]))
                     elif tool_key == "ffuf":
                          cmds_to_run.append((f"Ffuf ({srv_port})", ["ffuf", "-u", f"{base_url}/FUZZ", "-w", "/usr/share/wordlists/dirb/common.txt", "-mc", "all", "-fc", "404,301,302,500,501"]))
                     
@@ -904,7 +1005,7 @@ def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port
 
                 # SSH tools
                 elif "ssh" in service and tool_key == "hydra":
-                    cmds_to_run.append((f"Hydra SSH ({srv_port})", ["hydra", "-l", "root", "-P", "/usr/share/wordlists/rockyou.txt", f"ssh://{target}:{srv_port}"]))
+                    cmds_to_run.append((f"Hydra SSH ({srv_port})", build_hydra_wordlist_command("ssh", target, srv_port)))
                     
                 # SMB tools
                 elif ("netbios" in service or "smb" in service or "microsoft-ds" in service) and srv_port in ["139", "445"]:
@@ -917,7 +1018,9 @@ def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port
                 
                 # FTP tools
                 elif "ftp" in service and tool_key == "ftp":
-                     cmds_to_run.append((f"FTP Anonymous ({srv_port})", ["ftp", "-n", target, srv_port]))
+                     cmds_to_run.append((f"FTP Anonymous ({srv_port})", ["nmap", "--script", "ftp-anon", "-p", srv_port, "-Pn", target]))
+                 elif "ftp" in service and tool_key == "hydra":
+                     cmds_to_run.append((f"Hydra FTP ({srv_port})", build_hydra_wordlist_command("ftp", target, srv_port)))
 
         if not cmds_to_run and tool_key != "nmap" and tool_key not in ["whois", "dnsrecon", "dig", "traceroute", "amass", "theharvester"]:
             overall_output += f"--- {tool_key.upper()} ---\n[i] Skipped: No matching services detected for this tool.\n\n"

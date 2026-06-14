@@ -15,15 +15,29 @@ export const GlobalChatBubble: React.FC<GlobalChatBubbleProps> = ({ currentUsern
   const wsRef = useRef<WebSocket | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
+  const normalizeAndSortMessages = (items: ChatMessage[]) => {
+    const uniqueById = new Map<number, ChatMessage>();
+    for (const msg of items) {
+      uniqueById.set(msg.id, msg);
+    }
+
+    return [...uniqueById.values()].sort((a, b) => {
+      const aTs = new Date(a.created_at || 0).getTime();
+      const bTs = new Date(b.created_at || 0).getTime();
+      if (aTs !== bTs) return aTs - bTs;
+      return a.id - b.id;
+    });
+  };
+
   const sortedMessages = useMemo(() => {
-    return [...messages].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    return normalizeAndSortMessages(messages);
   }, [messages]);
 
   useEffect(() => {
     const run = async () => {
       try {
         const history = await toolsService.getChatMessages(150);
-        setMessages(history || []);
+        setMessages(normalizeAndSortMessages(history || []));
       } catch {
         // Ignore transient fetch errors, WS may still deliver messages.
       }
@@ -46,14 +60,11 @@ export const GlobalChatBubble: React.FC<GlobalChatBubbleProps> = ({ currentUsern
       try {
         const payload = JSON.parse(event.data);
         if (payload.type === 'history' && Array.isArray(payload.messages)) {
-          setMessages(payload.messages);
+          setMessages((prev) => normalizeAndSortMessages([...prev, ...payload.messages]));
           return;
         }
         if (payload.type === 'message' && payload.message) {
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === payload.message.id)) return prev;
-            return [...prev, payload.message];
-          });
+          setMessages((prev) => normalizeAndSortMessages([...prev, payload.message]));
         }
       } catch {
         // Ignore malformed WS payloads.
@@ -85,7 +96,7 @@ export const GlobalChatBubble: React.FC<GlobalChatBubbleProps> = ({ currentUsern
 
     try {
       const msg = await toolsService.sendChatMessage(text);
-      setMessages((prev) => [...prev, msg]);
+      setMessages((prev) => normalizeAndSortMessages([...prev, msg]));
     } catch {
       // If send fails, keep UX silent and let user retry.
     }

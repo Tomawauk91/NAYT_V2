@@ -61,6 +61,9 @@ def startup_event():
         try:
             # Try to create tables to check connection
             models.Base.metadata.create_all(bind=engine)
+            with engine.begin() as conn:
+                conn.exec_driver_sql("ALTER TABLE vulnerabilities ADD COLUMN IF NOT EXISTS cve VARCHAR(255)")
+                conn.exec_driver_sql("ALTER TABLE vulnerabilities ADD COLUMN IF NOT EXISTS mitre_attack VARCHAR(255)")
             print("Database connected and tables created.")
             break
         except Exception as e:
@@ -131,16 +134,37 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: model
 class PasswordReset(BaseModel):
     password: str
 
+class PasswordChange(BaseModel):
+    new_password: str
+
+@app.put("/users/me/change-password")
+def change_own_password(change: PasswordChange, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
+    """Permet à un utilisateur connecté de changer son propre mot de passe."""
+    try:
+        current_user.hashed_password = auth.get_password_hash(change.new_password)
+        db.commit()
+        return {"status": "success", "message": "Password changed successfully"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Password change failed: {str(e)}")
+
 @app.put("/users/{user_id}/reset-password")
 def reset_password(user_id: int, reset: PasswordReset, db: Session = Depends(get_db), current_user: models.User = Depends(auth.get_current_user)):
-    ensure_admin(current_user)
+    """Admin resets any password; regular users can reset only their own password."""
+    if current_user.role != "Admin" and int(current_user.id) != int(user_id):
+        raise HTTPException(status_code=403, detail="Only admins can reset other users passwords")
+    
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    user.hashed_password = auth.get_password_hash(reset.password)
-    db.commit()
-    return {"status": "success"}
+    try:
+        user.hashed_password = auth.get_password_hash(reset.password)
+        db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Password reset failed: {str(e)}")
 
 # --- Client Routes ---
 @app.get("/clients", response_model=List[schemas.Client])
@@ -742,7 +766,7 @@ def get_chat_messages(limit: int = 100, db: Session = Depends(get_db), current_u
     capped_limit = max(1, min(limit, 300))
     rows = (
         db.query(models.ChatMessage)
-        .order_by(models.ChatMessage.created_at.desc())
+        .order_by(models.ChatMessage.created_at.desc(), models.ChatMessage.id.desc())
         .limit(capped_limit)
         .all()
     )
@@ -792,7 +816,7 @@ async def websocket_chat_endpoint(websocket: WebSocket, token: str = Query(...))
 
         recent = (
             db.query(models.ChatMessage)
-            .order_by(models.ChatMessage.created_at.desc())
+            .order_by(models.ChatMessage.created_at.desc(), models.ChatMessage.id.desc())
             .limit(80)
             .all()
         )

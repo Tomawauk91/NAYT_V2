@@ -229,6 +229,28 @@ export const toolsService = {
       return await response.json();
   },
 
+  async changeOwnPassword(newPassword: string) {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/users/me/change-password`, {
+          method: 'PUT',
+          headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ new_password: newPassword })
+      });
+      if (!response.ok) {
+        const error = await response.text();
+        try {
+          const parsed = JSON.parse(error);
+          throw new Error(parsed?.detail || 'Failed to change password');
+        } catch {
+          throw new Error(error || 'Failed to change password');
+        }
+      }
+      return await response.json();
+  },
+
   // Config
   async saveConfig(key: string, value: string) {
        const token = localStorage.getItem('token');

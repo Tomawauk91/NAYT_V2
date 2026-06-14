@@ -302,7 +302,7 @@ export default function App() {
       }
       if (user) {
           try {
-              await toolsService.resetPassword(user.id, newPassword);
+              await toolsService.changeOwnPassword(newPassword);
               const updatedUser = { ...user, password: newPassword, isTempPassword: false };
               const updatedUsers = users.map(u => u.id === user.id ? updatedUser : u);
               setUsers(updatedUsers);
@@ -312,7 +312,7 @@ export default function App() {
               setConfirmPassword('');
               addNotification('success', t.pwUpdated);
           } catch (e: any) {
-              addNotification('error', 'Failed to change password on server');
+              addNotification('error', e.message || 'Failed to change password on server');
           }
       }
   };
