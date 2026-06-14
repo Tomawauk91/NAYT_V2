@@ -1018,9 +1018,9 @@ def run_auto_scan_task(self, target: str, selected_tool_names: list = None, port
                 
                 # FTP tools
                 elif "ftp" in service and tool_key == "ftp":
-                     cmds_to_run.append((f"FTP Anonymous ({srv_port})", ["nmap", "--script", "ftp-anon", "-p", srv_port, "-Pn", target]))
-                 elif "ftp" in service and tool_key == "hydra":
-                     cmds_to_run.append((f"Hydra FTP ({srv_port})", build_hydra_wordlist_command("ftp", target, srv_port)))
+                    cmds_to_run.append((f"FTP Anonymous ({srv_port})", ["nmap", "--script", "ftp-anon", "-p", srv_port, "-Pn", target]))
+                elif "ftp" in service and tool_key == "hydra":
+                    cmds_to_run.append((f"Hydra FTP ({srv_port})", build_hydra_wordlist_command("ftp", target, srv_port)))
 
         if not cmds_to_run and tool_key != "nmap" and tool_key not in ["whois", "dnsrecon", "dig", "traceroute", "amass", "theharvester"]:
             overall_output += f"--- {tool_key.upper()} ---\n[i] Skipped: No matching services detected for this tool.\n\n"
